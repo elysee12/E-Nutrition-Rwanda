@@ -85,7 +85,7 @@ function SignIn() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [stats, setStats] = useState({ totalChildren: 12486, totalCHWs: 1204, totalFacilities: 416 });
+  const [stats, setStats] = useState<{ totalChildren: number; totalCHWs: number; totalFacilities: number } | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
 
   // Load global, unfiltered stats for the homepage
@@ -264,9 +264,9 @@ function SignIn() {
             screening, WHO z-score classification, and instant referrals.
           </p>
           <div className="grid grid-cols-3 gap-3 pt-3">
-            <Stat label="All children covered" value={isLoadingStats ? "..." : stats.totalChildren.toLocaleString()} />
-            <Stat label="Active CHWs" value={isLoadingStats ? "..." : stats.totalCHWs.toLocaleString()} />
-            <Stat label="Hospital (Facility) covered" value={isLoadingStats ? "..." : stats.totalFacilities.toLocaleString()} />
+            <Stat label="All children covered" value={isLoadingStats || !stats ? "..." : stats.totalChildren.toLocaleString()} />
+            <Stat label="Active CHWs" value={isLoadingStats || !stats ? "..." : stats.totalCHWs.toLocaleString()} />
+            <Stat label="Hospital (Facility) covered" value={isLoadingStats || !stats ? "..." : stats.totalFacilities.toLocaleString()} />
           </div>
         </div>
 
