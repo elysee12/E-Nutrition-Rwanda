@@ -1,0 +1,17 @@
+{
+  "name": "E-Nutrition Rwanda",
+  "short_name": "E-Nutrition",
+  "description": "Digital Health Informatics System for identifying and monitoring malnutrition among under-five children in Rwanda.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/src/assets/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

@@ -4,14 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
-  HeadContent,
-  Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
-
-import appCss from "../styles.css?url";
-import favicon from "../assets/favicon.ico?url";
-import manifest from "../manifest.webmanifest?url";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -72,60 +65,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" },
-      { title: "E-Nutrition Rwanda" },
-      { name: "description", content: "Digital Health Informatics System for identifying and monitoring malnutrition among under-five children in Rwanda." },
-      { name: "author", content: "Ministry of Health · RBC" },
-      { property: "og:title", content: "E-Nutrition Rwanda" },
-      { property: "og:description", content: "Digital Health Informatics System for identifying and monitoring malnutrition among under-five children in Rwanda." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "E-Nutrition Rwanda" },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      {
-        rel: "icon",
-        type: "image/x-icon",
-        href: favicon,
-      },
-      {
-        rel: "apple-touch-icon",
-        href: favicon,
-      },
-      {
-        rel: "manifest",
-        href: manifest,
-      },
-    ],
-  }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
-
-function RootShell({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
