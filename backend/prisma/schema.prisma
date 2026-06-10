@@ -1,0 +1,616 @@
+// E-Nutrition Rwanda - Prisma Database Schema
+// Digital Health Informatics System for Malnutrition Surveillance
+// Ministry of Health · Rwanda Biomedical Center
+// 
+// This schema implements a comprehensive malnutrition tracking system
+// for children under 5 years (0-59 months) based on WHO standards.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Sex {
+  M  // Male
+  F  // Female
+}
+
+enum NutritionStatus {
+  Normal
+  MAM        // Moderate Acute Malnutrition
+  SAM        // Severe Acute Malnutrition
+  Stunting   // Chronic malnutrition (Height-for-Age)
+  Underweight // Weight-for-Age indicator
+  Wasting    // Acute malnutrition (Weight-for-Height)
+}
+
+enum UserRole {
+  ADMIN              // System administrator (MoH HQ)
+  DATA_MANAGER       // Health facility data manager
+  NURSE              // Nurse/Nutritionist (clinical assessment)
+  CHW                // Community Health Worker (field screening)
+}
+
+enum UserStatus {
+  Active
+  Suspended
+  Pending
+}
+
+enum AssessmentStatus {
+  Pending
+  Reviewed
+}
+
+enum FacilityType {
+  HEALTH_CENTER       // Health Center (HC)
+  HEALTH_POST         // Health Post (HP)
+  DISTRICT_HOSPITAL   // District Hospital (DH)
+  REFERRAL_HOSPITAL   // Referral/Regional Hospital (RH)
+}
+
+enum FacilityStatus {
+  Active
+  Pending
+  Suspended
+}
+
+enum ReferralStatus {
+  Pending
+  Accepted
+  Completed
+  Missed
+}
+
+enum AssessmentType {
+  INITIAL_SCREENING   // First assessment by CHW
+  CLINICAL_REVIEW     // Nurse/Nutritionist review
+  FOLLOW_UP           // Scheduled follow-up visit
+  EMERGENCY           // Emergency assessment
+}
+
+enum InterventionType {
+  CMAM                // Community-based Management of Acute Malnutrition
+  RUTF                // Ready-to-Use Therapeutic Food
+  SUPPLEMENTARY_FEEDING
+  COUNSELING
+  REFERRAL
+  HOSPITALIZATION
+}
+
+enum FollowUpStatus {
+  Scheduled
+  Completed
+  Missed
+  Rescheduled
+  Cancelled
+}
+
+enum ActivityType {
+  CHILD_REGISTRATION
+  ASSESSMENT_CREATED
+  ASSESSMENT_UPDATED
+  ASSESSMENT_REVIEWED
+  FOLLOW_UP_COMPLETED
+  REFERRAL_MADE
+  USER_CREATED
+  USER_UPDATED
+  FACILITY_REGISTERED
+  DATA_SYNCED
+}
+
+// ============================================================================
+// CORE MODELS
+// ============================================================================
+
+/// Health facilities (hospitals, health centers, health posts)
+model Facility {
+  id          String         @id @default(cuid())
+  code        String         @unique // e.g., "FAC-001"
+  name        String         // e.g., "Remera HC"
+  type        FacilityType
+  
+  // Location (Rwanda administrative structure)
+  province    String         // e.g., "Kigali"
+  district    String         // e.g., "Gasabo"
+  sector      String?        // Sector level (optional for hospitals)
+  
+  // Contact & Director Information
+  directorName    String?
+  facilityPhone   String?
+  facilityEmail   String?
+  
+  // Statistics
+  staffCount      Int        @default(0)
+  childrenCount   Int        @default(0)
+  
+  status      FacilityStatus @default(Active)
+  
+  // Relationships
+  users       User[]
+  children    Child[]        @relation("ChildFacility")
+  assessments Assessment[]
+  referralsFrom Referral[]   @relation("ReferralFrom")
+  referralsTo   Referral[]   @relation("ReferralTo")
+  activities  Activity[]
+  facilityStats FacilityStats[] @relation("FacilityStatsRelation")
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  @@index([province, district])
+  @@index([status])
+  @@index([type])
+  @@map("facilities")
+}
+
+/// System users (Admin, Data Manager, Nurse/Nutritionist, CHW)
+model User {
+  id          String      @id @default(cuid())
+  code        String      @unique // e.g., "U-001"
+  name        String
+  email       String      @unique
+  password    String      // Hashed password
+  phone       String?
+  
+  role        UserRole
+  status      UserStatus  @default(Active)
+  
+  // Facility assignment (all except Admin have assigned facility)
+  facility    Facility?   @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  facilityId  String?
+  
+  // Location assignment (CHWs have village-level assignment)
+  province    String?
+  district    String?
+  sector      String?
+  cell        String?     // Cell level (Rwanda admin structure)
+  village     String?     // Village level (CHW catchment area)
+  
+  // Relationships
+  assessments      Assessment[]
+  reviewedAssessments Assessment[]  @relation("ReviewedBy")
+  followUps        FollowUp[]
+  referralsMade    Referral[]        @relation("ReferralMadeBy")
+  activities       Activity[]
+  childrenRegistered Child[]         @relation("RegisteredBy")
+  childrenAssigned  Child[]          @relation("AssignedCHW")
+  chwStats         CHWStats[]        @relation("CHWStatsRelation")
+  notifications    Notification[]
+  
+  // Authentication & Security
+  lastLogin        DateTime?
+  loginAttempts    Int           @default(0)
+  passwordResetToken String?
+  passwordResetExpires DateTime?
+  otp              String?
+  otpExpires       DateTime?
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  @@index([email])
+  @@index([role])
+  @@index([facilityId])
+  @@index([status])
+  @@index([village, sector]) // For CHW queries
+  @@map("users")
+}
+
+  /// Children under 5 years (0-59 months) enrolled in the system
+model Child {
+  id          String      @id @default(cuid())
+  code        String      @unique // e.g., "ENR-00142"
+  applicationNumber String? @unique // Hospital/health center application number
+  
+  // Basic Information
+  name        String
+  sex         Sex
+  dateOfBirth DateTime
+  ageMonths   Int         // Calculated field, updated on each assessment
+  
+  // Parent/Guardian Information
+  fatherName       String?
+  motherName       String?
+  caregiverName    String?     // Primary caregiver (if not parent)
+  caregiverNationalId String?  // National ID of caregiver
+  caregiverPhone   String?
+  caregiverRelation String?    // Relationship to child
+  
+  // Additional caregiver info
+  otherInfo        String?     @db.Text // Additional notes about caregivers
+  
+  // Location (full administrative hierarchy)
+  province    String
+  district    String
+  sector      String
+  cell        String
+  village     String
+  
+  // Health Facility Assignment
+  facility    Facility    @relation("ChildFacility", fields: [facilityId], references: [id])
+  facilityId  String
+  
+  // Current Status
+  currentStatus       NutritionStatus @default(Normal)
+  lastAssessmentDate  DateTime?
+  
+  // Registration Info
+  registeredBy   User      @relation("RegisteredBy", fields: [registeredById], references: [id])
+  registeredById String
+  registeredAt   DateTime  @default(now())
+  
+  // Assigned CHW
+  assignedCHW    User?     @relation("AssignedCHW", fields: [assignedCHWId], references: [id])
+  assignedCHWId  String?
+
+  // Relationships
+  assessments   Assessment[]
+  followUps     FollowUp[]
+  referrals     Referral[]
+  growthRecords GrowthRecord[]
+  
+  // Metadata
+  isActive      Boolean   @default(true) // Set to false if child ages out (>59 months) or deceased
+  notes         String?   @db.Text
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([code])
+  @@index([applicationNumber])
+  @@index([facilityId])
+  @@index([currentStatus])
+  @@index([village, sector])
+  @@index([registeredById])
+  @@index([isActive])
+  @@fulltext([name]) // Full-text search on child name
+  @@map("children")
+}
+
+/// Nutritional assessments (screenings and clinical evaluations)
+model Assessment {
+  id          String          @id @default(cuid())
+  code        String          @unique // e.g., "ASM-00001"
+  type        AssessmentType  @default(CLINICAL_REVIEW)
+  status      AssessmentStatus @default(Pending)
+  
+  // Child and Facility
+  child       Child           @relation(fields: [childId], references: [id], onDelete: Cascade)
+  childId     String
+  
+  facility    Facility        @relation(fields: [facilityId], references: [id])
+  facilityId  String
+  
+  // Conducted by (User)
+  assessedBy  User            @relation(fields: [assessedById], references: [id])
+  assessedById String
+  
+  // Reviewed by (Nurse)
+  reviewedBy  User?           @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewedById String?
+  reviewedAt  DateTime?
+  
+  // Anthropometric Measurements (WHO standards)
+  weightKg    Float           // Weight in kilograms
+  heightCm    Float           // Height/Length in centimeters
+  muacMm      Float?          // Old column (millimeters) - kept for compatibility
+  muacCm      Float?          // Mid-Upper Arm Circumference in centimeters (WHO standard)
+  
+  // WHO Z-Scores (calculated)
+  zScoreWFH   Float?          // Weight-for-Height Z-score (Wasting indicator)
+  zScoreHFA   Float?          // Height-for-Age Z-score (Stunting indicator)
+  zScoreWFA   Float?          // Weight-for-Age Z-score (Underweight indicator)
+  
+  // Classification Results
+  nutritionStatus  NutritionStatus
+  isSAM           Boolean      @default(false) // Severe Acute Malnutrition flag
+  isMAM           Boolean      @default(false) // Moderate Acute Malnutrition flag
+  isStunted       Boolean      @default(false)
+  isUnderweight   Boolean      @default(false)
+  isWasted        Boolean      @default(false)
+  
+  // Clinical Assessment (extended fields - optional)
+  hasOedema       Boolean?     @default(false)
+  oedemaGrade     String?      // "+", "++" for bilateral pitting oedema
+  appetite        String?      // "Good", "Poor", "None"
+  clinicalSigns   String?      @db.Text // Other clinical observations
+  
+  // Diagnosis & Recommendations
+  diagnosis       String?      @db.Text
+  recommendations String?      @db.Text
+  interventions   Json?        // Array of interventions prescribed
+  
+  // Follow-up Planning
+  requiresFollowUp Boolean     @default(false)
+  followUpDate     DateTime?
+  
+  // Relationships
+  followUps   FollowUp[]
+  referral    Referral?
+  
+  // Metadata
+  assessmentDate DateTime     @default(now())
+  notes          String?      @db.Text
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  @@index([childId])
+  @@index([facilityId])
+  @@index([assessedById])
+  @@index([nutritionStatus])
+  @@index([isSAM, isMAM]) // Quick filtering for critical cases
+  @@index([assessmentDate])
+  @@map("assessments")
+}
+
+/// Follow-up visits and monitoring
+model FollowUp {
+  id             String         @id @default(cuid())
+  code           String         @unique // e.g., "FU-00001"
+  
+  child          Child          @relation(fields: [childId], references: [id], onDelete: Cascade)
+  childId        String
+  
+  // Related to original assessment
+  assessment     Assessment?    @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  assessmentId   String?
+  
+  // Scheduling
+  scheduledDate  DateTime
+  completedDate  DateTime?
+  status         FollowUpStatus @default(Scheduled)
+  
+  // Conducted by
+  conductedBy    User?          @relation(fields: [conductedById], references: [id])
+  conductedById  String?
+  
+  // Follow-up details
+  reason         String?        // Reason for follow-up
+  outcome        String?        @db.Text // Outcome of visit
+  nextFollowUp   DateTime?      // Schedule next follow-up
+  
+  // Metadata
+  notes          String?        @db.Text
+  
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  
+  @@index([childId])
+  @@index([assessmentId])
+  @@index([scheduledDate])
+  @@index([status])
+  @@index([conductedById])
+  @@map("follow_ups")
+}
+
+/// Referrals between health facilities
+model Referral {
+  id              String         @id @default(cuid())
+  code            String         @unique // e.g., "REF-2041"
+  
+  child           Child          @relation(fields: [childId], references: [id], onDelete: Cascade)
+  childId         String
+  
+  // Related assessment
+  assessment      Assessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId    String         @unique // One referral per assessment
+  
+  // Referral route
+  fromFacility    Facility       @relation("ReferralFrom", fields: [fromFacilityId], references: [id])
+  fromFacilityId  String
+  
+  toFacility      Facility       @relation("ReferralTo", fields: [toFacilityId], references: [id])
+  toFacilityId    String
+  
+  // Referral details
+  reason          String         // Reason for referral (SAM, MAM, complications, etc.)
+  urgency         String         @default("Routine") // "Emergency", "Urgent", "Routine"
+  status          ReferralStatus @default(Pending)
+  
+  // Made by
+  madeBy          User           @relation("ReferralMadeBy", fields: [madeById], references: [id])
+  madeById        String
+  
+  // Referral dates
+  referralDate    DateTime       @default(now())
+  acceptedDate    DateTime?
+  completedDate   DateTime?
+  
+  // Clinical information
+  clinicalNotes   String?        @db.Text
+  transportArranged Boolean      @default(false)
+  
+  // Outcome
+  outcome         String?        @db.Text
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  @@index([childId])
+  @@index([assessmentId])
+  @@index([fromFacilityId])
+  @@index([toFacilityId])
+  @@index([status])
+  @@index([referralDate])
+  @@map("referrals")
+}
+
+/// Growth tracking records (longitudinal data)
+model GrowthRecord {
+  id            String    @id @default(cuid())
+  
+  child         Child     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  childId       String
+  
+  // Measurements
+  ageMonths     Int
+  weightKg      Float
+  heightCm      Float
+  muacMm        Float?    // Old column (millimeters) - kept for compatibility
+  muacCm        Float?    // Mid-Upper Arm Circumference in centimeters
+  
+  // Z-scores at this point in time
+  zScoreWFH     Float?
+  zScoreHFA     Float?
+  zScoreWFA     Float?
+  
+  status        NutritionStatus @default(Normal)
+  
+  // Metadata
+  measuredDate  DateTime  @default(now())
+  notes         String?   @db.Text
+  
+  createdAt     DateTime  @default(now())
+  
+  @@index([childId, measuredDate])
+  @@index([ageMonths])
+  @@map("growth_records")
+}
+
+/// System activity log (audit trail)
+model Activity {
+  id            String        @id @default(cuid())
+  type          ActivityType
+  
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId        String?
+  
+  facility      Facility?     @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  facilityId    String?
+  
+  // Activity details
+  entityType    String?       // "Child", "Assessment", "User", etc.
+  entityId      String?       // ID of the affected entity
+  description   String        @db.Text
+  
+  // Metadata
+  ipAddress     String?
+  userAgent     String?       @db.Text
+  
+  createdAt     DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([facilityId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@map("activities")
+}
+
+// ============================================================================
+// ANALYTICS & REPORTING MODELS (Optional - for pre-computed aggregates)
+// ============================================================================
+
+/// Monthly facility statistics
+model FacilityStats {
+  id              String    @id @default(cuid())
+  
+  facility        Facility  @relation("FacilityStatsRelation", fields: [facilityId], references: [id], onDelete: Cascade)
+  facilityId      String
+  
+  // Time period
+  year            Int
+  month           Int
+  
+  // Screening statistics
+  totalScreened   Int       @default(0)
+  newRegistrations Int      @default(0)
+  
+  // Malnutrition cases
+  samCases        Int       @default(0)
+  mamCases        Int       @default(0)
+  stuntingCases   Int       @default(0)
+  
+  // Follow-ups
+  followUpsCompleted Int    @default(0)
+  followUpsMissed    Int    @default(0)
+  
+  // Referrals
+  referralsMade   Int       @default(0)
+  referralsReceived Int     @default(0)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([facilityId, year, month])
+  @@index([year, month])
+  @@map("facility_stats")
+}
+
+/// CHW performance tracking
+model CHWStats {
+  id              String    @id @default(cuid())
+  
+  chw             User      @relation("CHWStatsRelation", fields: [chwId], references: [id], onDelete: Cascade)
+  chwId           String
+  
+  // Time period
+  year            Int
+  month           Int
+  
+  // Activity metrics
+  childrenScreened Int      @default(0)
+  samIdentified    Int      @default(0)
+  mamIdentified    Int      @default(0)
+  referralsMade    Int      @default(0)
+  homeVisits       Int      @default(0)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([chwId, year, month])
+  @@index([year, month])
+  @@map("chw_stats")
+}
+
+enum NotificationType {
+  ASSESSMENT_CREATED
+  FOLLOWUP_DUE
+  REFERRAL_RECEIVED
+  USER_CREATED
+  SYSTEM
+}
+
+model Notification {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        NotificationType
+  title       String
+  message     String
+  read        Boolean         @default(false)
+  
+  // Optional: link to related entity
+  relatedId   String? // could be assessmentId, followUpId, referralId
+  relatedType String? // e.g., "assessment", "follow-up", "referral"
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+// EXTENSIONS (Optional future models)
+// ============================================================================
+
+// Future models that could be added:
+// - Interventions (detailed tracking of RUTF, CMAM enrollment, etc.)
+// - SupplyInventory (medical supplies, RUTF stock)
+// - CommunityMobilization (awareness campaigns, trainings)
+// - DataQualityAudits (validation checks, data quality scores)
+// - Integration with DHIS2 (sync logs, mapping)
