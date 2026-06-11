@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { clearAuth } from "@/lib/role";
 import { toast } from "sonner";
+import { offlineSync } from "@/lib/offline-sync";
 
 const tabs = [
   { to: "/mobile/home", label: "Home", icon: Home },
@@ -46,6 +47,7 @@ export function PhoneFrame({ title, children }: { title: string; children: React
   const handleLogout = () => {
     api.logout();
     clearAuth();
+    offlineSync.refreshUserContext();
     toast.success("Logged out successfully!");
     router.navigate({ to: "/" });
   };

@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { statusColor } from "@/lib/utils";
 import { api, type Child, type Assessment } from "@/lib/api";
 import { toast } from "sonner";
+import { offlineSync } from "@/lib/offline-sync";
+import { CloudOff } from "lucide-react";
 
 export const Route = createFileRoute("/mobile/measure")({ component: Measure });
 
@@ -128,6 +130,29 @@ function Measure() {
       toast.error("Please fill MUAC field");
       return;
     }
+
+    // Validate measurements before saving
+    const weightNum = parseFloat(measurements.weight);
+    const heightNum = parseFloat(measurements.height);
+    
+    if (weightNum <= 0 || weightNum > 30) {
+      toast.error("Invalid weight: must be between 0 and 30 kg");
+      return;
+    }
+
+    if (heightNum < 40 || heightNum > 120) {
+      toast.error("Invalid height: must be between 40 and 120 cm");
+      return;
+    }
+
+    if (!isUnder6Months) {
+      const muacNum = parseFloat(measurements.muac);
+      if (muacNum < 5 || muacNum > 20) {
+        toast.error("Invalid MUAC: must be between 5 and 20 cm");
+        return;
+      }
+    }
+    
     try {
       setSubmitLoading(true);
       const assessmentData: any = {
@@ -139,6 +164,26 @@ function Measure() {
       if (!isUnder6Months) {
         assessmentData.muacCm = parseFloat(measurements.muac);
       }
+
+      // Handle offline case
+      if (!navigator.onLine) {
+        offlineSync.addAction(
+          'assessment',
+          `Measurement: ${selectedChild.name}`,
+          assessmentData
+        );
+        toast.info("Offline: Measurement saved locally", { 
+          description: "Data will sync when connection is restored.",
+          icon: <CloudOff className="h-4 w-4" />
+        });
+        setSaved(true);
+        setTimeout(() => {
+          setMeasurements({ weight: "", height: "", muac: "" });
+          setSaved(false);
+        }, 2500);
+        return;
+      }
+
       await api.createAssessment(assessmentData);
       // Refresh history to include the new record
       await fetchAllHistory();

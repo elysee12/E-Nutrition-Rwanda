@@ -1,36 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PhoneFrame } from "@/components/mobile/PhoneFrame";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, Loader2, AlertCircle, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { offlineSync, type SyncAction } from "@/lib/offline-sync";
 
 export const Route = createFileRoute("/mobile/sync")({ component: Sync });
 
-type SyncRecord = {
-  id: string;
-  type: "registration" | "measurement";
-  description: string;
-  status: "queued" | "syncing" | "synced";
-};
-
 function Sync() {
-  // Sample initial pending records
-  const [records, setRecords] = useState<SyncRecord[]>([
-    { id: "1", type: "registration", description: "New registration: Iradukunda Aline", status: "queued" },
-    { id: "2", type: "registration", description: "New registration: Nkurunziza Paul", status: "queued" },
-    { id: "3", type: "registration", description: "New registration: Uwimana Claire", status: "queued" },
-    { id: "4", type: "measurement", description: "Measurement: Iradukunda Aline", status: "queued" },
-    { id: "5", type: "measurement", description: "Measurement: Nkurunziza Paul", status: "queued" },
-  ]);
-  
+  const [records, setRecords] = useState<SyncAction[]>(offlineSync.getActions());
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(offlineSync.getLastSyncTime());
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   
-  // Count pending/synced records
+  // Count pending records
   const pendingCount = records.filter(r => r.status !== "synced").length;
-  const syncedCount = records.filter(r => r.status === "synced").length;
+  
+  // Refresh records when they change
+  useEffect(() => {
+    const handleUpdate = () => {
+      setRecords(offlineSync.getActions());
+      setLastSync(offlineSync.getLastSyncTime());
+    };
+    window.addEventListener("enr-sync-updated", handleUpdate);
+    return () => window.removeEventListener("enr-sync-updated", handleUpdate);
+  }, []);
   
   // Listen for online/offline events
   useEffect(() => {
@@ -46,7 +42,7 @@ function Sync() {
   
   // Auto-sync when coming back online
   useEffect(() => {
-    if (isOnline && pendingCount > 0) {
+    if (isOnline && pendingCount > 0 && !isSyncing) {
       toast.info("Internet restored! Auto-syncing pending records...");
       handleSync();
     }
@@ -57,26 +53,61 @@ function Sync() {
       toast.info("No records to sync!");
       return;
     }
+    if (!isOnline) {
+      toast.error("No internet connection!");
+      return;
+    }
+
     setIsSyncing(true);
     try {
-      // Mark each record as syncing, then as synced (simulate API calls)
-      const updatedRecords = [...records];
-      for (let i = 0; i < updatedRecords.length; i++) {
-        if (updatedRecords[i].status !== "synced") {
-          updatedRecords[i].status = "syncing";
-          setRecords([...updatedRecords]);
-          await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-          updatedRecords[i].status = "synced";
-          setRecords([...updatedRecords]);
-        }
+      const results = await offlineSync.syncAll();
+      const now = new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit" });
+      setLastSync(now);
+      offlineSync.setLastSyncTime(now);
+      
+      if (results.failed === 0) {
+        toast.success(`Synced ${results.success} records!`);
+      } else {
+        toast.warning(`Synced ${results.success} records, ${results.failed} failed.`);
       }
-      setLastSync(new Date().toLocaleString("en-US", { hour: "numeric", minute: "2-digit" }));
-      toast.success("All records synced successfully!");
     } catch (error) {
-      toast.error("Failed to sync some records!");
+      toast.error("An error occurred during synchronization");
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const handleRetry = async (record: SyncAction) => {
+    if (!isOnline) {
+      toast.error("Cannot retry: No internet connection");
+      return;
+    }
+    
+    setRetryingId(record.id);
+    try {
+      const success = await offlineSync.retryAction(record.id);
+      if (success) {
+        toast.success("Record synced successfully!");
+      } else {
+        toast.error("Failed to sync record");
+      }
+    } catch (error) {
+      toast.error("Failed to retry sync");
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  const handleDelete = (record: SyncAction) => {
+    if (confirm(`Delete "${record.description}"?`)) {
+      offlineSync.removeAction(record.id);
+      toast.success("Record deleted");
+    }
+  };
+
+  const clearSynced = () => {
+    offlineSync.clearSynced();
+    toast.success("Sync history cleared");
   };
   
   return (
@@ -100,31 +131,75 @@ function Sync() {
             </Button>
           )}
         </div>
+
+        <div className="flex items-center justify-between px-1">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sync Queue</div>
+          {records.some(r => r.status === "synced") && (
+            <button onClick={clearSynced} className="text-[10px] font-bold text-primary flex items-center gap-1">
+              <Trash2 className="h-3 w-3" /> Clear synced
+            </button>
+          )}
+        </div>
+
         <div className="space-y-2">
-          {records.map((record) => (
-            <div key={record.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+          {records.slice().reverse().map((record) => (
+            <div key={record.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
               {record.status === "synced" ? (
                 <CheckCircle2 className="h-4 w-4 text-[color:var(--success)]" />
-              ) : record.status === "syncing" ? (
+              ) : record.status === "syncing" || retryingId === record.id ? (
                 <Loader2 className="h-4 w-4 text-primary animate-spin" />
+              ) : record.status === "error" ? (
+                <AlertCircle className="h-4 w-4 text-destructive" />
               ) : (
                 <CloudOff className="h-4 w-4 text-muted-foreground" />
               )}
-              <div className="text-sm flex-1">{record.description}</div>
-              <span className={`text-[11px] ${
-                record.status === "synced" 
-                  ? "text-[color:var(--success)]" 
-                  : record.status === "syncing" 
-                  ? "text-primary" 
-                  : "text-muted-foreground"
-              }`}>
-                {record.status}
-              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{record.description}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {record.error && (
+                    <span className="text-destructive"> · Error: {record.error}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {record.status === "error" && (
+                  <>
+                    <button
+                      onClick={() => handleRetry(record)}
+                      disabled={!isOnline || retryingId !== null}
+                      className="p-1.5 rounded-full hover:bg-muted transition-colors text-primary"
+                      title="Retry sync"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(record)}
+                      className="p-1.5 rounded-full hover:bg-muted transition-colors text-destructive"
+                      title="Delete record"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
+                <span className={`text-[11px] font-bold capitalize ${
+                  record.status === "synced" 
+                    ? "text-[color:var(--success)]" 
+                    : record.status === "syncing" 
+                    ? "text-primary" 
+                    : record.status === "error"
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+                }`}>
+                  {record.status}
+                </span>
+              </div>
             </div>
           ))}
           {records.length === 0 && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              No pending records!
+            <div className="text-center py-10 rounded-2xl border border-dashed border-border bg-muted/30">
+              <CloudOff className="h-8 w-8 mx-auto text-muted-foreground/30 mb-2" />
+              <div className="text-sm text-muted-foreground">No records in sync queue</div>
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+import { offlineSync } from "@/lib/offline-sync";
 
 type Item = { to: string; label: string; icon: any; roles: Role[] };
 
@@ -54,6 +55,7 @@ export function AppSidebar() {
   const handleLogout = () => {
     api.logout();
     clearAuth();
+    offlineSync.refreshUserContext();
     toast.success("Logged out successfully!");
     router.navigate({ to: "/" });
   };

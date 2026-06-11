@@ -10,6 +10,8 @@ import {
   Mail,
   ShieldCheck,
   ServerCrash,
+  Smartphone,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -26,6 +28,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { setRole, type Role } from "@/lib/role";
+import { offlineSync } from "@/lib/offline-sync";
 import { api, type UserRole } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth-guard";
 
@@ -139,6 +142,9 @@ function SignIn() {
       const frontendRole = toFrontendRole(response.user.role);
       setRole(frontendRole);
       localStorage.setItem("user", JSON.stringify(response.user));
+      
+      // Refresh sync context for the new user
+      offlineSync.refreshUserContext();
 
       // ── Navigate ──
       toast.success(`Welcome back, ${response.user.name}!`);
@@ -402,6 +408,26 @@ function SignIn() {
               facility's Data Manager or Administrator to request access.
             </div>
           </Card>
+
+          {/* APK Download Option */}
+          <div className="pt-2">
+            <a 
+              href="/e-nutrition-rwanda.apk" 
+              download
+              className="flex items-center justify-between p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200 transition-all group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="grid place-items-center h-10 w-10 rounded-xl bg-emerald-500 text-white shadow-sm group-hover:scale-110 transition-transform">
+                  <Smartphone className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-slate-900">Download Mobile App</div>
+                  <div className="text-[11px] text-emerald-700 font-medium">Get the Android APK for field work</div>
+                </div>
+              </div>
+              <Download className="h-5 w-5 text-emerald-600" />
+            </a>
+          </div>
 
           <div className="text-center text-xs text-muted-foreground">
             Need access?{" "}

@@ -8,9 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LocationPicker, type LocationValue } from "@/components/LocationPicker";
 import { statusColor } from "@/lib/utils";
-import { Save, Loader2, Plus, ArrowLeft, Search, Baby, ChevronRight, RefreshCw, User } from "lucide-react";
+import { Save, Loader2, Plus, ArrowLeft, Search, Baby, ChevronRight, RefreshCw, User, CloudOff } from "lucide-react";
 import { toast } from "sonner";
 import { api, type Child, type Assessment } from "@/lib/api";
+import { offlineSync } from "@/lib/offline-sync";
 
 export const Route = createFileRoute("/mobile/register")({ component: Register });
 
@@ -141,8 +142,7 @@ function Register() {
     if (!loc.village) { toast.error("Please select location down to village level"); return; }
     try {
       setFormLoading(true);
-      const profile = await api.getProfile();
-      if (!profile.facilityId) { toast.error("Account not linked to a facility"); return; }
+      
       const payload: any = {
         applicationNumber: form.applicationNumber.trim() || undefined,
         name: form.childName, sex: form.sex as "M" | "F", dateOfBirth: form.dob,
@@ -151,8 +151,27 @@ function Register() {
         caregiverPhone: form.phone || undefined, caregiverNationalId: form.caregiverNationalId || undefined,
         otherInfo: form.others || undefined,
         province: loc.province!, district: loc.district!, sector: loc.sector!, cell: loc.cell!, village: loc.village!,
-        facilityId: profile.facilityId,
       };
+
+      // Handle offline case
+      if (!navigator.onLine) {
+        offlineSync.addAction(
+          'registration',
+          `New registration: ${form.childName}`,
+          payload
+        );
+        toast.info("Offline: Registration saved locally", { 
+          description: "Data will sync when connection is restored.",
+          icon: <CloudOff className="h-4 w-4" />
+        });
+        resetForm(); setView("list");
+        return;
+      }
+
+      const profile = await api.getProfile();
+      if (!profile.facilityId) { toast.error("Account not linked to a facility"); return; }
+      payload.facilityId = profile.facilityId;
+      
       if (isUpdate && existingChild) {
         await api.updateChild(existingChild.id, payload);
         toast.success(`${form.childName} updated successfully`);

@@ -3,6 +3,7 @@ import { PhoneFrame } from "@/components/mobile/PhoneFrame";
 import { Activity, AlertTriangle, ChevronRight, MapPin, UserPlus, Users, Loader2, Plus, Stethoscope } from "lucide-react";
 import { statusColor } from "@/lib/utils";
 import { api, type Child, type User } from "@/lib/api";
+import { offlineSync } from "@/lib/offline-sync";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ function Home() {
   const [children, setChildren] = useState<Child[]>([]);
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingCount, setPendingCount] = useState(offlineSync.getPendingCount());
   const [stats, setStats] = useState({ 
     total: 0, 
     screenedToday: 0, 
@@ -24,6 +26,13 @@ function Home() {
 
   useEffect(() => {
     fetchData();
+
+    // Listen for sync updates
+    const handleUpdate = () => {
+      setPendingCount(offlineSync.getPendingCount());
+    };
+    window.addEventListener("enr-sync-updated", handleUpdate);
+    return () => window.removeEventListener("enr-sync-updated", handleUpdate);
   }, []);
 
   const fetchData = async () => {
@@ -104,7 +113,7 @@ function Home() {
               <div className="text-[10px] opacity-90 font-semibold mt-1">SAM alerts</div>
             </div>
             <div className="bg-white/25 backdrop-blur-md rounded-2xl py-4 px-3 text-center shadow-lg">
-              <div className="text-2xl font-extrabold">{stats.toSync}</div>
+              <div className="text-2xl font-extrabold">{pendingCount}</div>
               <div className="text-[10px] opacity-90 font-semibold mt-1">To sync</div>
             </div>
           </div>
