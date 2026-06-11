@@ -25,7 +25,7 @@ export function DataManagerDashboard() {
       setLoading(true);
       const [dashboardStats, usersResponse, activitiesResponse, profile] = await Promise.all([
         api.getDashboardStats(),
-        api.getUsers({ limit: 10 }),
+        api.getUsers({ limit: 100 }),
         api.getActivities({ limit: 10 }),
         api.getProfile(),
       ]);

@@ -62,8 +62,8 @@ function Staff() {
     try {
       setLoading(true);
       const [usersResponse, facilitiesResponse] = await Promise.all([
-        api.getUsers(),
-        api.getFacilities(),
+        api.getUsers({ limit: 1000 }), // Request a large limit to get all staff for tab counts
+        api.getFacilities({ limit: 1000 }), // Request a large limit for the facility dropdown
       ]);
       setUsers(usersResponse.data);
       setFacilities(facilitiesResponse.data);

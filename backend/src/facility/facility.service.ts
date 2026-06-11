@@ -41,7 +41,8 @@ export class FacilityService {
     status?: string;
   }, user?: any) {
     const page = Number(query?.page) || 1;
-    const limit = Math.min(Number(query?.limit) || 10, 100);
+    // Increase default limit to 100 and max limit to 1000 for management views
+    const limit = Math.min(Number(query?.limit) || 100, 1000);
     const skip = (page - 1) * limit;
 
     const where: any = {};

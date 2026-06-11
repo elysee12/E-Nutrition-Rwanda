@@ -66,9 +66,9 @@ function Analytics() {
         api.getAnalytics(),
       ];
       if (adminFlag) {
-        calls.push(api.getFacilities({ limit: 20 }));
+        calls.push(api.getFacilities({ limit: 100 }));
       } else {
-        calls.push(api.getUsers({ limit: 20, role: "CHW", facilityId: currentUser?.facilityId }));
+        calls.push(api.getUsers({ limit: 100, role: "CHW", facilityId: currentUser?.facilityId }));
       }
       const [stats, analytics, thirdResponse] = await Promise.all(calls);
       console.log("fetchAll results:", { adminFlag, stats, analytics, thirdResponse });
