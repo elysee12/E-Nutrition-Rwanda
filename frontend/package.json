@@ -6,6 +6,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "static": "vite build && cp -r dist/* public/",
+    "mobile:build": "vite build && npx cap sync",
+    "mobile:open": "npx cap open android",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

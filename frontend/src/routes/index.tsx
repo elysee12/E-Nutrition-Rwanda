@@ -90,9 +90,29 @@ function SignIn() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [stats, setStats] = useState<{ totalChildren: number; totalCHWs: number; totalFacilities: number } | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
 
   // Load global, unfiltered stats for the homepage
   useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+      // Update UI notify the user they can install the PWA
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    window.addEventListener('appinstalled', () => {
+      // Log install to analytics
+      console.log('INSTALL: Success');
+      setIsInstallable(false);
+      setDeferredPrompt(null);
+    });
+
     const loadStats = async () => {
       setIsLoadingStats(true);
       try {
@@ -244,6 +264,21 @@ function SignIn() {
     setOtp("");
     setNewPassword("");
     setConfirmPassword("");
+  };
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the install prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // We've used the prompt, and can't use it again, throw it away
+    setDeferredPrompt(null);
+    setIsInstallable(false);
   };
 
   return (
@@ -409,24 +444,47 @@ function SignIn() {
             </div>
           </Card>
 
-          {/* APK Download Option */}
+          {/* PWA Install Option */}
           <div className="pt-2">
-            <a 
-              href="/enr-mobile.apk"
-              download="enr-mobile.apk"
-              className="w-full flex items-center justify-between p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200 transition-all group cursor-pointer no-underline"
+            <button 
+              onClick={handleInstallClick}
+              disabled={!isInstallable}
+              className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all group cursor-pointer ${
+                isInstallable 
+                ? "border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200" 
+                : "border-slate-100 bg-slate-50/30 opacity-60 cursor-not-allowed"
+              }`}
             >
               <div className="flex items-center gap-3">
-                <div className="grid place-items-center h-10 w-10 rounded-xl bg-emerald-500 text-white shadow-sm group-hover:scale-110 transition-transform">
+                <div className={`grid place-items-center h-10 w-10 rounded-xl text-white shadow-sm transition-transform ${
+                  isInstallable ? "bg-emerald-500 group-hover:scale-110" : "bg-slate-400"
+                }`}>
                   <Smartphone className="h-5 w-5" />
                 </div>
-                <div>
-                  <div className="text-sm font-bold text-slate-900">Download Mobile App</div>
-                  <div className="text-[11px] text-emerald-700 font-medium">Get the Android APK for field work</div>
+                <div className="text-left">
+                  <div className="text-sm font-bold text-slate-900">
+                    {isInstallable ? "Install Mobile App" : "App Already Installed"}
+                  </div>
+                  <div className={`text-[11px] font-medium ${isInstallable ? "text-emerald-700" : "text-slate-500"}`}>
+                    {isInstallable 
+                      ? "Add to home screen for offline field work" 
+                      : "Access via your home screen icon"}
+                  </div>
                 </div>
               </div>
-              <Download className="h-5 w-5 text-emerald-600" />
-            </a>
+              {isInstallable ? (
+                <Download className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <div className="h-5 w-5 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                </div>
+              )}
+            </button>
+            {isInstallable && (
+              <p className="mt-2 text-[10px] text-center text-muted-foreground px-4 animate-pulse">
+                ✨ Tap to install the official app on your device
+              </p>
+            )}
           </div>
 
           <div className="text-center text-xs text-muted-foreground">
