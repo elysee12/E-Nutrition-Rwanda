@@ -412,9 +412,9 @@ function SignIn() {
           {/* APK Download Option */}
           <div className="pt-2">
             <a 
-              href="/e-nutrition-rwanda.apk" 
-              download
-              className="flex items-center justify-between p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200 transition-all group"
+              href="/enr-mobile.apk"
+              download="enr-mobile.apk"
+              className="w-full flex items-center justify-between p-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-200 transition-all group cursor-pointer no-underline"
             >
               <div className="flex items-center gap-3">
                 <div className="grid place-items-center h-10 w-10 rounded-xl bg-emerald-500 text-white shadow-sm group-hover:scale-110 transition-transform">
