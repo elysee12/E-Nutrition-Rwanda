@@ -11,8 +11,9 @@ export const Route = createFileRoute("/web/dashboard")({
 
 function Dashboard() {
   const role = useRole();
+  const normalizedRole = role?.toLowerCase();
 
-  if (role === "data-manager") return <DataManagerDashboard />;
-  if (role === "admin") return <AdminDashboard />;
+  if (normalizedRole === "data-manager") return <DataManagerDashboard />;
+  if (normalizedRole === "admin") return <AdminDashboard />;
   return <NurseDashboard />;
 }

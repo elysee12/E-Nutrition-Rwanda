@@ -32,4 +32,8 @@ export class CreateAssessmentDto {
   @IsString()
   @IsOptional()
   clinicalNotes?: string;
+
+  @IsString()
+  @IsOptional()
+  syncId?: string;
 }

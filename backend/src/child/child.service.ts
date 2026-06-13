@@ -12,6 +12,26 @@ export class ChildService {
   ) {}
 
   async create(createChildDto: CreateChildDto, user: any) {
+    // Check for idempotency using syncId
+    if ((createChildDto as any).syncId) {
+      const existing = await this.prisma.child.findUnique({
+        where: { syncId: (createChildDto as any).syncId } as any,
+        include: {
+          facility: true,
+          registeredBy: {
+            select: { id: true, name: true, code: true, role: true },
+          },
+          assignedCHW: {
+            select: { id: true, name: true, code: true, phone: true, village: true }
+          }
+        },
+      });
+      if (existing) {
+        console.log(`📡 Idempotency: Returning existing child for syncId ${(createChildDto as any).syncId}`);
+        return existing;
+      }
+    }
+
     // Calculate age in months
     const birthDate = new Date(createChildDto.dateOfBirth);
     const today = new Date();
@@ -89,105 +109,148 @@ export class ChildService {
       });
     }
 
-    // Generate child code: get last child and increment
-    const lastChild = await this.prisma.child.findFirst({
-      orderBy: { createdAt: 'desc' },
-    });
-    let nextNumber = 1;
-    if (lastChild) {
-      const match = lastChild.code.match(/ENR-(\d+)/);
-      if (match && match[1]) {
-        nextNumber = parseInt(match[1], 10) + 1;
+    // Generate child code: get last child and increment with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 5;
+
+    while (retries < maxRetries) {
+      const lastChild = await this.prisma.child.findFirst({
+        orderBy: { code: 'desc' },
+      });
+      
+      let nextNumber = 1;
+      if (lastChild) {
+        const match = lastChild.code.match(/ENR-(\d+)/);
+        if (match && match[1]) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
       }
-    }
-    const code = `ENR-${String(nextNumber).padStart(5, '0')}`;
+      code = `ENR-${String(nextNumber).padStart(5, '0')}`;
 
-    // Create child with caregiver relation if CHW is assigned OR provided via DTO
-    let finalCaregiverRelation: string | undefined;
-    if (createChildDto.caregiverRelation) {
-      finalCaregiverRelation = createChildDto.caregiverRelation;
-    } else if (assignedCHW) {
-      finalCaregiverRelation = `CHW: ${assignedCHW.name}`;
-    }
+      try {
+        // Create child with caregiver relation if CHW is assigned OR provided via DTO
+        let finalCaregiverRelation: string | undefined;
+        if (createChildDto.caregiverRelation) {
+          finalCaregiverRelation = createChildDto.caregiverRelation;
+        } else if (assignedCHW) {
+          finalCaregiverRelation = `CHW: ${assignedCHW.name}`;
+        }
 
-    const child = await this.prisma.child.create({
-      data: {
-        name: createChildDto.name,
-        sex: createChildDto.sex,
-        dateOfBirth: new Date(createChildDto.dateOfBirth).toISOString(),
-        applicationNumber: createChildDto.applicationNumber || null,
-        fatherName: createChildDto.fatherName,
-        motherName: createChildDto.motherName,
-        caregiverName: createChildDto.caregiverName,
-        caregiverPhone: createChildDto.caregiverPhone,
-        caregiverNationalId: createChildDto.caregiverNationalId,
-        otherInfo: createChildDto.otherInfo,
-        caregiverRelation: finalCaregiverRelation,
-        code,
-        ageMonths,
-        currentStatus: 'Normal',
-        isActive: true,
-        registeredById: user.id,
-        assignedCHWId: assignedCHW?.id,
-        facilityId,
-        province: createChildDto.province,
-        district: createChildDto.district,
-        sector: createChildDto.sector,
-        cell: createChildDto.cell,
-        village: createChildDto.village,
-      },
-      include: {
-        facility: true,
-        registeredBy: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            role: true,
+        const child = await this.prisma.child.create({
+          data: {
+            name: createChildDto.name,
+            sex: createChildDto.sex,
+            dateOfBirth: new Date(createChildDto.dateOfBirth).toISOString(),
+            applicationNumber: createChildDto.applicationNumber || null,
+            syncId: createChildDto.syncId || null,
+            fatherName: createChildDto.fatherName,
+            motherName: createChildDto.motherName,
+            caregiverName: createChildDto.caregiverName,
+            caregiverPhone: createChildDto.caregiverPhone,
+            caregiverNationalId: createChildDto.caregiverNationalId,
+            otherInfo: createChildDto.otherInfo,
+            caregiverRelation: finalCaregiverRelation,
+            code,
+            ageMonths,
+            currentStatus: 'Normal',
+            isActive: true,
+            registeredById: user.id,
+            assignedCHWId: assignedCHW?.id,
+            facilityId,
+            province: createChildDto.province,
+            district: createChildDto.district,
+            sector: createChildDto.sector,
+            cell: createChildDto.cell,
+            village: createChildDto.village,
           },
-        },
-        assignedCHW: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            phone: true,
-            village: true,
+          include: {
+            facility: true,
+            registeredBy: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                role: true,
+              },
+            },
+            assignedCHW: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                phone: true,
+                village: true,
+              }
+            }
+          },
+        });
+
+        // Log activity
+        await this.prisma.activity.create({
+          data: {
+            type: 'CHILD_REGISTRATION',
+            userId: user.id,
+            facilityId,
+            entityType: 'Child',
+            entityId: child.id,
+            description: assignedCHW 
+              ? `Child ${child.name} (${child.code}) registered and assigned to CHW ${assignedCHW.name}`
+              : `Child ${child.name} (${child.code}) registered`,
+          },
+        });
+
+        // Send notification to CHW if assigned
+        if (assignedCHW) {
+          await this.notificationService.createNotification({
+            userId: assignedCHW.id,
+            type: 'USER_CREATED',
+            title: 'New Child Assigned',
+            message: `You have been assigned a new child: ${child.name} (${child.code}). Please schedule a screening as soon as possible.`,
+            relatedId: child.id,
+            relatedType: 'child',
+          });
+        }
+
+        return {
+          ...child,
+          assignedCHW: assignedCHW || undefined,
+        };
+      } catch (error) {
+        if (error.code === 'P2002') {
+          const target = error.meta?.target as string;
+          
+          // Check if it's a syncId conflict - if yes, return existing record
+          if (target.includes('syncId') && createChildDto.syncId) {
+            const existing = await this.prisma.child.findUnique({
+              where: { syncId: createChildDto.syncId },
+              include: {
+                facility: true,
+                registeredBy: {
+                  select: { id: true, name: true, code: true, role: true },
+                },
+                assignedCHW: {
+                  select: { id: true, name: true, code: true, phone: true, village: true }
+                }
+              },
+            });
+            if (existing) {
+              console.log(`📡 Idempotency (race condition): Returning existing child for syncId ${createChildDto.syncId}`);
+              return existing;
+            }
+          }
+          
+          // If it's a code conflict, retry
+          if (target.includes('code') || target.includes('children_code_key')) {
+            retries++;
+            continue;
           }
         }
-      },
-    });
-
-    // Log activity
-    await this.prisma.activity.create({
-      data: {
-        type: 'CHILD_REGISTRATION',
-        userId: user.id,
-        facilityId,
-        entityType: 'Child',
-        entityId: child.id,
-        description: assignedCHW 
-          ? `Child ${child.name} (${child.code}) registered and assigned to CHW ${assignedCHW.name}`
-          : `Child ${child.name} (${child.code}) registered`,
-      },
-    });
-
-    // Send notification to CHW if assigned
-    if (assignedCHW) {
-      await this.notificationService.createNotification({
-        userId: assignedCHW.id,
-        type: 'USER_CREATED',
-        title: 'New Child Assigned',
-        message: `You have been assigned a new child: ${child.name} (${child.code}). Please schedule a screening as soon as possible.`,
-        relatedId: child.id,
-        relatedType: 'child',
-      });
+        throw error;
+      }
     }
 
-    return {
-      ...child,
-      assignedCHW: assignedCHW || undefined,
-    };
+    throw new Error('Failed to generate a unique child code after multiple attempts.');
   }
 
   async findAll(query: {

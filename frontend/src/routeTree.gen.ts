@@ -31,6 +31,7 @@ import { Route as MobileRegisterRouteImport } from './routes/mobile.register'
 import { Route as MobileNotificationsRouteImport } from './routes/mobile.notifications'
 import { Route as MobileMeasureRouteImport } from './routes/mobile.measure'
 import { Route as MobileHomeRouteImport } from './routes/mobile.home'
+import { Route as MobileChatRouteImport } from './routes/mobile.chat'
 import { Route as WebChildrenNewRouteImport } from './routes/web.children.new'
 import { Route as WebChildrenChildIdRouteImport } from './routes/web.children.$childId'
 
@@ -144,6 +145,11 @@ const MobileHomeRoute = MobileHomeRouteImport.update({
   path: '/home',
   getParentRoute: () => MobileRoute,
 } as any)
+const MobileChatRoute = MobileChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => MobileRoute,
+} as any)
 const WebChildrenNewRoute = WebChildrenNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/mobile': typeof MobileRouteWithChildren
   '/web': typeof WebRouteWithChildren
+  '/mobile/chat': typeof MobileChatRoute
   '/mobile/home': typeof MobileHomeRoute
   '/mobile/measure': typeof MobileMeasureRoute
   '/mobile/notifications': typeof MobileNotificationsRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/mobile': typeof MobileRouteWithChildren
   '/web': typeof WebRouteWithChildren
+  '/mobile/chat': typeof MobileChatRoute
   '/mobile/home': typeof MobileHomeRoute
   '/mobile/measure': typeof MobileMeasureRoute
   '/mobile/notifications': typeof MobileNotificationsRoute
@@ -212,6 +220,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/mobile': typeof MobileRouteWithChildren
   '/web': typeof WebRouteWithChildren
+  '/mobile/chat': typeof MobileChatRoute
   '/mobile/home': typeof MobileHomeRoute
   '/mobile/measure': typeof MobileMeasureRoute
   '/mobile/notifications': typeof MobileNotificationsRoute
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/'
     | '/mobile'
     | '/web'
+    | '/mobile/chat'
     | '/mobile/home'
     | '/mobile/measure'
     | '/mobile/notifications'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/'
     | '/mobile'
     | '/web'
+    | '/mobile/chat'
     | '/mobile/home'
     | '/mobile/measure'
     | '/mobile/notifications'
@@ -292,6 +303,7 @@ export interface FileRouteTypes {
     | '/'
     | '/mobile'
     | '/web'
+    | '/mobile/chat'
     | '/mobile/home'
     | '/mobile/measure'
     | '/mobile/notifications'
@@ -470,6 +482,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MobileMeasureRouteImport
       parentRoute: typeof MobileRoute
     }
+    '/mobile/chat': {
+      id: '/mobile/chat'
+      path: '/chat'
+      fullPath: '/mobile/chat'
+      preLoaderRoute: typeof MobileChatRouteImport
+      parentRoute: typeof MobileRoute
+    }
     '/mobile/home': {
       id: '/mobile/home'
       path: '/home'
@@ -495,6 +514,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface MobileRouteChildren {
+  MobileChatRoute: typeof MobileChatRoute
   MobileHomeRoute: typeof MobileHomeRoute
   MobileMeasureRoute: typeof MobileMeasureRoute
   MobileNotificationsRoute: typeof MobileNotificationsRoute
@@ -504,6 +524,7 @@ interface MobileRouteChildren {
 }
 
 const MobileRouteChildren: MobileRouteChildren = {
+  MobileChatRoute: MobileChatRoute,
   MobileHomeRoute: MobileHomeRoute,
   MobileMeasureRoute: MobileMeasureRoute,
   MobileNotificationsRoute: MobileNotificationsRoute,

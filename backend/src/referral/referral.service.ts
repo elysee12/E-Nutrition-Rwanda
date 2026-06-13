@@ -35,44 +35,70 @@ export class ReferralService {
       throw new BadRequestException('Assessment already has a referral');
     }
 
-    // Generate referral code
-    const referralCount = await this.prisma.referral.count();
-    const code = `REF-${String(referralCount + 1).padStart(4, '0')}`;
+    // Generate referral code with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 5;
 
-    const referral = await this.prisma.referral.create({
-      data: {
-        ...createReferralDto,
-        code,
-        madeById,
-        status: 'Pending',
-      },
-      include: {
-        child: true,
-        assessment: true,
-        fromFacility: true,
-        toFacility: true,
-        madeBy: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            role: true,
+    while (retries < maxRetries) {
+      const lastReferral = await this.prisma.referral.findFirst({
+        orderBy: { code: 'desc' },
+      });
+      
+      let nextNumber = 1;
+      if (lastReferral) {
+        const match = lastReferral.code.match(/REF-(\d+)/);
+        if (match && match[1]) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      }
+      code = `REF-${String(nextNumber).padStart(4, '0')}`;
+
+      try {
+        const referral = await this.prisma.referral.create({
+          data: {
+            ...createReferralDto,
+            code,
+            madeById,
+            status: 'Pending',
           },
-        },
-      },
-    });
+          include: {
+            child: true,
+            assessment: true,
+            fromFacility: true,
+            toFacility: true,
+            madeBy: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                role: true,
+              },
+            },
+          },
+        });
 
-    // Log activity
-    await this.prisma.activity.create({
-      data: {
-        type: 'REFERRAL_MADE',
-        userId: madeById,
-        facilityId: createReferralDto.fromFacilityId,
-        description: `Referral ${code} created for child ${child.name}`,
-      },
-    });
+        // Log activity
+        await this.prisma.activity.create({
+          data: {
+            type: 'REFERRAL_MADE',
+            userId: madeById,
+            facilityId: createReferralDto.fromFacilityId,
+            description: `Referral ${code} created for child ${child.name}`,
+          },
+        });
 
-    return referral;
+        return referral;
+      } catch (error) {
+        if (error.code === 'P2002' && (error.meta?.target?.includes('code') || error.meta?.target?.includes('referrals_code_key'))) {
+          retries++;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to generate a unique referral code after multiple attempts.');
   }
 
   async findAll(query?: {

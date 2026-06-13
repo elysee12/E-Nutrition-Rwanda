@@ -76,6 +76,20 @@ class OfflineSyncService {
     try {
       const stored = localStorage.getItem(this.getSyncStorageKey(this.currentUserId));
       this.actions = stored ? JSON.parse(stored) : [];
+      
+      // Reset any stuck 'syncing' actions back to 'queued'
+      // This fixes actions that were in the middle of syncing when page closed/refreshed
+      let hasChanges = false;
+      for (let i = 0; i < this.actions.length; i++) {
+        if (this.actions[i].status === 'syncing') {
+          this.actions[i].status = 'queued';
+          delete this.actions[i].error;
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        this.saveActions();
+      }
     } catch (e) {
       console.error('Failed to load sync actions', e);
       this.actions = [];
@@ -97,11 +111,15 @@ class OfflineSyncService {
     this.loadCurrentUser();
     this.loadActions();
     
+    // Inject syncId for idempotency if not present
+    const syncId = payload.syncId || `sync-${Math.random().toString(36).substring(2, 15)}-${Date.now()}`;
+    const enrichedPayload = { ...payload, syncId };
+
     const action: SyncAction = {
       id: Math.random().toString(36).substring(2, 9),
       type,
       description,
-      payload,
+      payload: enrichedPayload,
       status: 'queued',
       timestamp: Date.now(),
     };
@@ -183,8 +201,8 @@ class OfflineSyncService {
         await api.createAssessment(action.payload);
       }
       
-      action.status = 'synced';
-      delete action.error;
+      // Remove the successfully retried action immediately from queue
+      this.actions = this.actions.filter(a => a.id !== actionId);
       this.saveActions();
       window.dispatchEvent(new CustomEvent('enr-sync-updated'));
       return true;
@@ -221,6 +239,9 @@ class OfflineSyncService {
       console.error('Failed to get user profile', e);
     }
 
+    // Process actions and collect ids of successfully synced ones to remove
+    const syncedIds: string[] = [];
+
     for (let i = 0; i < this.actions.length; i++) {
       const action = this.actions[i];
       if (action.status === 'synced') continue;
@@ -243,9 +264,8 @@ class OfflineSyncService {
           await api.createAssessment(payload);
         }
         
-        action.status = 'synced';
-        delete action.error;
         results.success++;
+        syncedIds.push(action.id); // Mark for removal
       } catch (e: any) {
         console.error(`Failed to sync action ${action.id}`, e);
         action.status = 'error';
@@ -256,6 +276,16 @@ class OfflineSyncService {
       this.saveActions();
       window.dispatchEvent(new CustomEvent('enr-sync-updated'));
     }
+
+    // Remove successfully synced actions from queue immediately
+    if (syncedIds.length > 0) {
+      this.actions = this.actions.filter(a => !syncedIds.includes(a.id));
+      this.saveActions();
+      window.dispatchEvent(new CustomEvent('enr-sync-updated'));
+    }
+
+    // Update last sync time regardless of success/failure
+    this.setLastSyncTime(new Date().toLocaleString());
 
     return results;
   }

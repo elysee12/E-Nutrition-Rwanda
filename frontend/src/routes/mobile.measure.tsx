@@ -77,10 +77,14 @@ function Measure() {
   // Helper to get most recent assessment per child
   const getMostRecentPerChild = (assessmentList: Assessment[]) => {
     const childMap = new Map<string, Assessment>();
-    for (const a of assessmentList) {
+    // Sort by date first to ensure we process most recent first
+    const sortedAssessments = [...assessmentList].sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
+    
+    for (const a of sortedAssessments) {
       const childId = a.child?.id || a.childId;
-      const existing = childMap.get(childId);
-      if (!existing || new Date(a.assessmentDate) > new Date(existing.assessmentDate)) {
+      if (!childMap.has(childId)) {
         childMap.set(childId, a);
       }
     }
@@ -88,13 +92,19 @@ function Measure() {
   };
 
   // History shown in the list:
-  // - if a child is selected → show all their assessments (for history)
-  // - otherwise → show only most recent per child
+  // - if a child is selected → show all their assessments (sorted by date desc)
+  // - otherwise → show only most recent per child (sorted by date desc)
   const displayedHistory = useMemo(() => {
+    let history: Assessment[];
     if (selectedChild) {
-      return allHistory.filter((a) => a.child?.id === selectedChild.id || a.childId === selectedChild.id);
+      history = allHistory.filter((a) => a.child?.id === selectedChild.id || a.childId === selectedChild.id);
+    } else {
+      history = getMostRecentPerChild(allHistory);
     }
-    return getMostRecentPerChild(allHistory);
+    // Sort by date descending (most recent first)
+    return history.sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
   }, [allHistory, selectedChild]);
 
   const totalPages = Math.ceil(displayedHistory.length / itemsPerPage);
@@ -119,7 +129,7 @@ function Measure() {
     fetchChildHistory(child.id);
   };
 
-  const isUnder6Months = selectedChild ? selectedChild.ageMonths <= 6 : false;
+  const isUnder6Months = selectedChild ? selectedChild.ageMonths < 6 : false;
 
   const handleSave = async () => {
     if (!measurements.weight || !measurements.height || !selectedChild) {

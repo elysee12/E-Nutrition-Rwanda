@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { api, type Child, type Assessment } from "@/lib/api";
 import { useAssessmentValidation } from "@/hooks/useFormValidation";
 import { getWeightError, getHeightError, getMUACError } from "@/lib/validation";
+import { handleError } from "@/lib/error-handler";
 
 export const Route = createFileRoute("/web/assessments")({
   head: () => ({ meta: [{ title: "Assessments — E-Nutrition Rwanda" }] }),
@@ -44,7 +45,7 @@ function Assessments() {
   const [classification, setClassification] = useState<ClassificationResult | null>(null);
   const [children, setChildren] = useState<Child[]>([]);
   
-  const isUnder6Months = selectedChild ? selectedChild.ageMonths <= 6 : false;
+  const isUnder6Months = selectedChild ? selectedChild.ageMonths < 6 : false;
   
   // Form validation
   const validation = useAssessmentValidation();
@@ -123,42 +124,62 @@ function Assessments() {
         ).length,
       });
     } catch (error) {
-      console.error("Failed to fetch assessments:", error);
-      toast.error("Failed to load assessments.");
+      const errorMessage = handleError(error, "Failed to load assessments");
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // Tab data - only show most recent per child
+  // Tab data - only show most recent per child, sorted by date desc
   const getMostRecentPerChild = (assessmentList: Assessment[]) => {
     const childMap = new Map<string, Assessment>();
-    for (const a of assessmentList) {
-      const existing = childMap.get(a.childId);
-      if (!existing || new Date(a.assessmentDate) > new Date(existing.assessmentDate)) {
+    // Sort by date first to ensure we process most recent first
+    const sortedAssessments = [...assessmentList].sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
+    
+    for (const a of sortedAssessments) {
+      if (!childMap.has(a.childId)) {
         childMap.set(a.childId, a);
       }
     }
     return Array.from(childMap.values());
   };
 
-  const allAssessments = useMemo(() => getMostRecentPerChild(assessments), [assessments]);
+  const allAssessments = useMemo(() => {
+    const mostRecent = getMostRecentPerChild(assessments);
+    // Sort by date descending (most recent first)
+    return mostRecent.sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
+  }, [assessments]);
 
-  const pendingReview = useMemo(() =>
-    getMostRecentPerChild(assessments.filter((a) => a.status === "Pending")),
-    [assessments]
-  );
+  const pendingReview = useMemo(() => {
+    const mostRecent = getMostRecentPerChild(assessments.filter((a) => a.status === "Pending"));
+    // Sort by date descending (most recent first)
+    return mostRecent.sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
+  }, [assessments]);
 
   // Follow-ups: only most recent assessment, and only if that assessment still requires follow-up
   const followups = useMemo(() => {
     const mostRecent = getMostRecentPerChild(assessments);
-    return mostRecent.filter(a => a.requiresFollowUp);
+    const filtered = mostRecent.filter(a => a.requiresFollowUp);
+    // Sort by date descending (most recent first)
+    return filtered.sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
   }, [assessments]);
 
-  const reviewed = useMemo(() =>
-    getMostRecentPerChild(assessments.filter((a) => a.status === "Reviewed")),
-    [assessments]
-  );
+  const reviewed = useMemo(() => {
+    const mostRecent = getMostRecentPerChild(assessments.filter((a) => a.status === "Reviewed"));
+    // Sort by date descending (most recent first)
+    return mostRecent.sort((a, b) => 
+      new Date(b.assessmentDate).getTime() - new Date(a.assessmentDate).getTime()
+    );
+  }, [assessments]);
 
   // State for interactive KPI cards
   const [activeKpiTab, setActiveKpiTab] = useState<string | null>(null);
@@ -308,8 +329,8 @@ function Assessments() {
       // Refresh list with the newly saved assessment
       await fetchData();
     } catch (error) {
-      console.error("Failed to submit assessment:", error);
-      toast.error("Failed to submit assessment. Please try again.");
+      const errorMessage = handleError(error, "Failed to submit assessment");
+      toast.error(errorMessage);
     }
   };
 
@@ -322,8 +343,8 @@ function Assessments() {
       setOpenReview(false);
       await fetchData();
     } catch (error) {
-      console.error("Failed to review assessment:", error);
-      toast.error("Failed to review assessment.");
+      const errorMessage = handleError(error, "Failed to review assessment");
+      toast.error(errorMessage);
     }
   };
 

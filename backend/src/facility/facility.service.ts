@@ -8,28 +8,54 @@ export class FacilityService {
   constructor(private prisma: PrismaService) {}
 
   async create(createFacilityDto: CreateFacilityDto) {
-    // Generate facility code
-    const facilityCount = await this.prisma.facility.count();
-    const code = `FAC-${String(facilityCount + 1).padStart(3, '0')}`;
+    // Generate facility code with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 5;
 
-    const facility = await this.prisma.facility.create({
-      data: {
-        ...createFacilityDto,
-        code,
-        status: 'Active',
-      },
-    });
+    while (retries < maxRetries) {
+      const lastFacility = await this.prisma.facility.findFirst({
+        orderBy: { code: 'desc' },
+      });
+      
+      let nextNumber = 1;
+      if (lastFacility) {
+        const match = lastFacility.code.match(/FAC-(\d+)/);
+        if (match && match[1]) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      }
+      code = `FAC-${String(nextNumber).padStart(3, '0')}`;
 
-    // Log activity
-    await this.prisma.activity.create({
-      data: {
-        type: 'FACILITY_REGISTERED',
-        facilityId: facility.id,
-        description: `Facility ${facility.name} registered`,
-      },
-    });
+      try {
+        const facility = await this.prisma.facility.create({
+          data: {
+            ...createFacilityDto,
+            code,
+            status: 'Active',
+          },
+        });
 
-    return facility;
+        // Log activity
+        await this.prisma.activity.create({
+          data: {
+            type: 'FACILITY_REGISTERED',
+            facilityId: facility.id,
+            description: `Facility ${facility.name} registered`,
+          },
+        });
+
+        return facility;
+      } catch (error) {
+        if (error.code === 'P2002' && (error.meta?.target?.includes('code') || error.meta?.target?.includes('facilities_code_key'))) {
+          retries++;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to generate a unique facility code after multiple attempts.');
   }
 
   async findAll(query?: {

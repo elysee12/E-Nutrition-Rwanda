@@ -88,5 +88,9 @@ export class CreateChildDto {
 
   @IsString()
   @IsOptional()
+  syncId?: string;
+
+  @IsString()
+  @IsOptional()
   assignedCHWId?: string; // Optional manual CHW assignment
 }

@@ -24,25 +24,33 @@ type FilterType = "all" | "day" | "week" | "month" | "custom";
 function Reports() {
   const role = useRole();
   const user = getStoredUser();
-  const isAdmin = role === "admin";
+  const isAdmin = role?.toLowerCase() === "admin";
   
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [statusFilter, setStatusFilter] = useState<NutritionStatus | "all">("all");
+  const [selectedFacilityId, setSelectedFacilityId] = useState<string>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
+  const [facilities, setFacilities] = useState<any[]>([]);
   const [children, setChildren] = useState<(Child & { assessments: Assessment[] })[]>([]);
 
   const fetchChildren = async () => {
     try {
       setLoading(true);
-      const response = await api.getChildren({ limit: 100 });
-      setChildren(response.data as any);
+      const [childrenResponse, facilitiesResponse] = await Promise.all([
+        api.getChildren({ limit: 1000 }),
+        isAdmin ? api.getFacilities({ limit: 1000 }) : Promise.resolve({ data: [] }),
+      ]);
+      setChildren(childrenResponse.data as any);
+      if (isAdmin) {
+        setFacilities(facilitiesResponse.data);
+      }
     } catch (err) {
       console.error(err);
-      toast.error("Failed to load children");
+      toast.error("Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -55,6 +63,11 @@ function Reports() {
   // Create child with latest assessment (or virtual if no assessment)
   const filteredItems = useMemo(() => {
     let filtered = children;
+    
+    // Filter by selected facility (Admin view)
+    if (isAdmin && selectedFacilityId !== "all") {
+      filtered = filtered.filter(c => c.facilityId === selectedFacilityId);
+    }
     
     // Filter by user's facility if not admin
     if (!isAdmin && user?.facilityId) {
@@ -100,7 +113,7 @@ function Reports() {
     });
     
     return filtered;
-  }, [children, filterType, fromDate, toDate, statusFilter, isAdmin, user?.facilityId]);
+  }, [children, filterType, fromDate, toDate, statusFilter, selectedFacilityId, isAdmin, user?.facilityId]);
 
   // Get latest assessment for each child, or create a "virtual" one if none exists
   const latestAssessments = useMemo(() => {
@@ -171,62 +184,12 @@ function Reports() {
     return { total, normal, sam, mam, wasting, stunting, underweight };
   }, [filteredItems]);
 
-  // Per-facility breakdown (for Admin view) - mutually exclusive classification
-  const perFacilityData = useMemo(() => {
-    const facilityMap = new Map<string, any>();
-    filteredItems.forEach(child => {
-      const key = child.facilityId;
-      const facility = child.facility || { 
-        id: key, 
-        name: "Unknown Facility", 
-        type: "UNKNOWN" 
-      };
-      if (!facilityMap.has(key)) {
-        facilityMap.set(key, {
-          facility,
-          total: 0,
-          normal: 0,
-          sam: 0,
-          mam: 0,
-          wasting: 0,
-          stunting: 0,
-          underweight: 0,
-          assessments: []
-        });
-      }
-      const entry = facilityMap.get(key)!;
-      entry.total++;
-      switch (child.currentStatus) {
-        case 'SAM':
-          entry.sam++;
-          break;
-        case 'MAM':
-          entry.mam++;
-          break;
-        case 'Wasting':
-          entry.wasting++;
-          break;
-        case 'Stunting':
-          entry.stunting++;
-          break;
-        case 'Underweight':
-          entry.underweight++;
-          break;
-        default:
-          entry.normal++;
-      }
-      const latestAssessment = child.assessments?.[0];
-      if (latestAssessment) {
-        // Ensure assessment has all necessary nested properties
-        entry.assessments.push({
-          ...latestAssessment,
-          child,
-          assessedBy: latestAssessment.assessedBy || { name: "N/A", role: "N/A" },
-        });
-      }
-    });
-    return Array.from(facilityMap.values());
-  }, [filteredItems]);
+  // Get selected facility name for display
+  const selectedFacilityName = useMemo(() => {
+    if (selectedFacilityId === "all") return "All Facilities";
+    const facility = facilities.find(f => f.id === selectedFacilityId);
+    return facility?.name || "Unknown Facility";
+  }, [selectedFacilityId, facilities]);
 
   // Pagination
   const totalPages = Math.ceil(latestAssessments.length / pageSize);
@@ -345,6 +308,35 @@ function Reports() {
         {/* Filter Section */}
         <Card className="p-4">
           <div className="flex flex-wrap gap-4 items-end">
+            {isAdmin && (
+              <div className="space-y-1.5 flex-1 min-w-[250px]">
+                <Label className="text-xs text-muted-foreground font-semibold">
+                  <Building2 className="h-3.5 w-3.5 inline mr-1" />
+                  View Facility/Hospital
+                </Label>
+                <Select value={selectedFacilityId} onValueChange={setSelectedFacilityId}>
+                  <SelectTrigger className="font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      <span className="font-semibold">All Facilities (System-wide)</span>
+                    </SelectItem>
+                    {facilities.map((facility) => (
+                      <SelectItem key={facility.id} value={facility.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{facility.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({facility.type.replace(/_/g, " ")})
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-1.5 flex-1 min-w-[200px]">
               <Label className="text-xs text-muted-foreground">Time Period</Label>
               <Select value={filterType} onValueChange={(v) => setFilterType(v as FilterType)}>
@@ -411,133 +403,62 @@ function Reports() {
           </div>
 
           {/* Summary Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mt-4 pt-4 border-t">
-            <div>
-              <div className="text-xs text-muted-foreground">Total</div>
-              <div className="text-2xl font-bold text-slate-900">{overallStats.total}</div>
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-sm flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-primary" />
+                {selectedFacilityName}
+              </h4>
+              {isAdmin && selectedFacilityId !== "all" && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setSelectedFacilityId("all")}
+                  className="text-xs"
+                >
+                  View All Facilities
+                </Button>
+              )}
             </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Normal</div>
-              <div className="text-2xl font-bold text-green-600">{overallStats.normal}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">SAM</div>
-              <div className="text-2xl font-bold text-red-600">{overallStats.sam}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">MAM</div>
-              <div className="text-2xl font-bold text-orange-600">{overallStats.mam}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Wasting</div>
-              <div className="text-2xl font-bold text-purple-600">{overallStats.wasting}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Stunting</div>
-              <div className="text-2xl font-bold text-yellow-600">{overallStats.stunting}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Underweight</div>
-              <div className="text-2xl font-bold text-blue-600">{overallStats.underweight}</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              <div>
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div className="text-2xl font-bold text-slate-900">{overallStats.total}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Normal</div>
+                <div className="text-2xl font-bold text-green-600">{overallStats.normal}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">SAM</div>
+                <div className="text-2xl font-bold text-red-600">{overallStats.sam}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">MAM</div>
+                <div className="text-2xl font-bold text-orange-600">{overallStats.mam}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Wasting</div>
+                <div className="text-2xl font-bold text-purple-600">{overallStats.wasting}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Stunting</div>
+                <div className="text-2xl font-bold text-yellow-600">{overallStats.stunting}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Underweight</div>
+                <div className="text-2xl font-bold text-blue-600">{overallStats.underweight}</div>
+              </div>
             </div>
           </div>
         </Card>
 
-        {/* Admin View: Per-Facility Breakdown */}
-        {isAdmin && (
-          <div className="space-y-5">
-            {perFacilityData.map((facilityEntry) => (
-              <Card key={facilityEntry.facility.id} className="p-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Building2 className="h-5 w-5 text-primary" />
-                  <h3 className="font-semibold text-lg">{facilityEntry.facility.name}</h3>
-                  <Badge variant="outline">{facilityEntry.facility.type.replace(/_/g, " ")}</Badge>
-                </div>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Total</div>
-                    <div className="text-xl font-bold">{facilityEntry.total}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Normal</div>
-                    <div className="text-xl font-bold text-green-600">{facilityEntry.normal}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">SAM</div>
-                    <div className="text-xl font-bold text-red-600">{facilityEntry.sam}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">MAM</div>
-                    <div className="text-xl font-bold text-orange-600">{facilityEntry.mam}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Wasting</div>
-                    <div className="text-xl font-bold text-purple-600">{facilityEntry.wasting}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Stunting</div>
-                    <div className="text-xl font-bold text-yellow-600">{facilityEntry.stunting}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Underweight</div>
-                    <div className="text-xl font-bold text-blue-600">{facilityEntry.underweight}</div>
-                  </div>
-                </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead>Date</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Child</TableHead>
-                      <TableHead>Assessed By</TableHead>
-                      <TableHead>Result</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {facilityEntry.assessments.slice(0, 5).map((assessment) => (
-                      <TableRow key={assessment.id}>
-                        <TableCell>
-                          <div className="text-sm">
-                            {new Date(assessment.assessmentDate).toLocaleDateString('en-US', { 
-                              month: 'short', day: 'numeric', year: 'numeric' 
-                            })}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{assessment.code}</TableCell>
-                        <TableCell className="text-sm">{assessment.child.name}</TableCell>
-                        <TableCell className="text-sm">{assessment.assessedBy.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={getStatusColor(assessment.nutritionStatus)}>
-                            {assessment.nutritionStatus}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {facilityEntry.assessments.length > 5 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-2">
-                          And {facilityEntry.assessments.length - 5} more assessments...
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Card>
-            ))}
-
-            {perFacilityData.length === 0 && (
-              <Card className="p-8 text-center text-muted-foreground">
-                No assessments found for the selected filters.
-              </Card>
-            )}
-          </div>
-        )}
-
-        {/* Non-Admin View OR Detailed Assessment Table (always show this) */}
+        {/* Assessment Table */}
         <Card className="overflow-hidden">
-          <h3 className="p-4 font-semibold border-b">{isAdmin ? "All Assessments" : "Your Facility's Assessments"}</h3>
+          <h3 className="p-4 font-semibold border-b flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            {selectedFacilityId === "all" ? "All Assessments" : `${selectedFacilityName} - Assessments`}
+          </h3>
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">

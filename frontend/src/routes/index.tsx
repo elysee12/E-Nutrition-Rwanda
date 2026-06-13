@@ -487,12 +487,7 @@ function SignIn() {
             )}
           </div>
 
-          <div className="text-center text-xs text-muted-foreground">
-            Need access?{" "}
-            <a href="#" className="text-primary hover:underline">
-              Contact your facility administrator
-            </a>
-          </div>
+
         </div>
       </section>
 

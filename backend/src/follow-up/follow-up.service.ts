@@ -39,40 +39,67 @@ export class FollowUpService {
   }
 
   async create(createFollowUpDto: CreateFollowUpDto, userId: string) {
-    const followUpCount = await this.prisma.followUp.count();
-    const code = `FU-${String(followUpCount + 1).padStart(5, '0')}`;
+    // Generate follow-up code with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 5;
 
-    const followUp = await this.prisma.followUp.create({
-      data: {
-        ...createFollowUpDto,
-        code,
-        status: 'Scheduled',
-      },
-      include: {
-        child: { include: { facility: true } },
-        assessment: true,
-        conductedBy: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            role: true,
+    while (retries < maxRetries) {
+      const lastFollowUp = await this.prisma.followUp.findFirst({
+        orderBy: { code: 'desc' },
+      });
+      
+      let nextNumber = 1;
+      if (lastFollowUp) {
+        const match = lastFollowUp.code.match(/FU-(\d+)/);
+        if (match && match[1]) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      }
+      code = `FU-${String(nextNumber).padStart(5, '0')}`;
+
+      try {
+        const followUp = await this.prisma.followUp.create({
+          data: {
+            ...createFollowUpDto,
+            code,
+            status: 'Scheduled',
           },
-        },
-      },
-    });
+          include: {
+            child: { include: { facility: true } },
+            assessment: true,
+            conductedBy: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                role: true,
+              },
+            },
+          },
+        });
 
-    await this.prisma.activity.create({
-      data: {
-        type: 'FOLLOW_UP_COMPLETED',
-        userId,
-        entityType: 'FollowUp',
-        entityId: followUp.id,
-        description: `Follow-up ${followUp.code} scheduled for ${followUp.child.name}`,
-      },
-    });
+        await this.prisma.activity.create({
+          data: {
+            type: 'FOLLOW_UP_COMPLETED',
+            userId,
+            entityType: 'FollowUp',
+            entityId: followUp.id,
+            description: `Follow-up ${followUp.code} scheduled for ${followUp.child.name}`,
+          },
+        });
 
-    return followUp;
+        return followUp;
+      } catch (error) {
+        if (error.code === 'P2002' && (error.meta?.target?.includes('code') || error.meta?.target?.includes('follow_ups_code_key'))) {
+          retries++;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to generate a unique follow-up code after multiple attempts.');
   }
 
   async findAll(query: {

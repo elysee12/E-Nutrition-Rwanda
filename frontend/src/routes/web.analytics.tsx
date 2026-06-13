@@ -38,7 +38,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 function Analytics() {
   const role = useRole();
-  const isAdmin = role === "admin";
+  const isAdmin = role?.toLowerCase() === "admin";
   
   const [loading, setLoading] = useState(true);
   const [dashStats, setDashStats] = useState<any>({});
@@ -55,7 +55,7 @@ function Analytics() {
       setLoading(true);
       const currentUser = getStoredUser();
       const currentRole = getRole();
-      const adminFlag = currentRole === "admin";
+      const adminFlag = currentRole?.toLowerCase() === "admin";
       
       console.log("fetchAll: currentUser", currentUser);
       console.log("fetchAll: currentRole", currentRole);

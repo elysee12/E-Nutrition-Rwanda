@@ -16,6 +16,7 @@ import { Plus, UserCog, Edit2, Trash2, Loader2 } from "lucide-react";
 import { LocationPicker, type LocationValue } from "@/components/LocationPicker";
 import { api, type User as ApiUser, type UserRole, type UserStatus, type Facility } from "@/lib/api";
 import { useRole, getStoredUser } from "@/lib/role";
+import { handleError } from "@/lib/error-handler";
 
 export const Route = createFileRoute("/web/staff")({
   head: () => ({ meta: [{ title: "Staff Register — E-Nutrition Rwanda" }] }),
@@ -43,7 +44,7 @@ const empty: FormState = {
 
 function Staff() {
   const role = useRole();
-  const isAdmin = role === "admin";
+  const isAdmin = role?.toLowerCase() === "admin";
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,8 +69,8 @@ function Staff() {
       setUsers(usersResponse.data);
       setFacilities(facilitiesResponse.data);
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to load data");
+      const errorMessage = handleError(err, "Failed to load data");
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -168,8 +169,8 @@ function Staff() {
       setOpen(false);
       fetchData();
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to save user");
+      const errorMessage = handleError(err, "Failed to save user");
+      toast.error(errorMessage);
     }
   };
 
@@ -179,8 +180,8 @@ function Staff() {
       toast.success(`${u.name} ${u.status === "Active" ? "suspended" : "activated"}`);
       fetchData();
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to update status");
+      const errorMessage = handleError(err, "Failed to update status");
+      toast.error(errorMessage);
     }
   };
 
@@ -191,8 +192,8 @@ function Staff() {
         toast.success("Account removed");
         fetchData();
       } catch (err) {
-        console.error(err);
-        toast.error("Failed to delete account");
+        const errorMessage = handleError(err, "Failed to delete account");
+        toast.error(errorMessage);
       }
     }
   };

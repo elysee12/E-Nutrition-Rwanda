@@ -167,7 +167,9 @@ export function TopBar({ title, subtitle }: { title: string; subtitle?: string }
 
   const displayName = user?.name || 'User';
   const displayInitials = user ? getInitials(user.name) : 'U';
-  const displayFacility = user?.facility?.name || 'Not assigned';
+  const displayFacility = user?.role === 'ADMIN' 
+    ? 'System Manager' 
+    : (user?.facility?.name || 'Not assigned');
   const displayRole = user?.role ? ROLE_LABEL[role] : 'User';
 
   return (

@@ -29,45 +29,81 @@ export class UserService {
     // Hash password
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-    // Generate user code
-    const userCount = await this.prisma.user.count();
-    const code = `U-${String(userCount + 1).padStart(4, '0')}`;
+    // Generate user code with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 10;
 
-    // Create user
-    const user = await this.prisma.user.create({
-      data: {
-        ...createUserDto,
-        password: hashedPassword,
-        code,
-        status: 'Active',
-        facilityId: createUserDto.role === 'ADMIN' ? null : createUserDto.facilityId,
-      },
-      include: { facility: true },
-    });
+    while (retries < maxRetries) {
+      // Get all existing user codes to find the maximum numeric value
+      const allUsers = await this.prisma.user.findMany({
+        select: { code: true },
+      });
+      
+      // Extract numeric values from all codes and find the maximum
+      let maxNumber = 0;
+      for (const user of allUsers) {
+        const match = user.code.match(/U-(\d+)/);
+        if (match && match[1]) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNumber) {
+            maxNumber = num;
+          }
+        }
+      }
+      
+      // Generate next code
+      const nextNumber = maxNumber + 1;
+      code = `U-${String(nextNumber).padStart(4, '0')}`;
 
-    // Send welcome email — fire-and-forget, never blocks user creation
-    this.emailService.sendWelcomeEmail(
-      user.email,
-      user.name,
-      user.email,
-      plainPassword
-    ).catch((err) => {
-      // Already handled inside EmailService, but guard here too
-      console.error('sendWelcomeEmail unexpected error:', err?.message);
-    });
+      try {
+        // Create user
+        const user = await this.prisma.user.create({
+          data: {
+            ...createUserDto,
+            password: hashedPassword,
+            code,
+            status: 'Active',
+            facilityId: createUserDto.role === 'ADMIN' ? null : createUserDto.facilityId,
+          },
+          include: { facility: true },
+        });
 
-    // Log activity
-    await this.prisma.activity.create({
-      data: {
-        type: 'USER_CREATED',
-        userId: user.id,
-        description: `User ${user.name} created with role ${user.role}`,
-      },
-    });
+        // Send welcome email — fire-and-forget, never blocks user creation
+        this.emailService.sendWelcomeEmail(
+          user.email,
+          user.name,
+          user.email,
+          plainPassword
+        ).catch((err) => {
+          // Already handled inside EmailService, but guard here too
+          console.error('sendWelcomeEmail unexpected error:', err?.message);
+        });
 
-    // Remove password from response
-    const { password, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+        // Log activity
+        await this.prisma.activity.create({
+          data: {
+            type: 'USER_CREATED',
+            userId: user.id,
+            description: `User ${user.name} created with role ${user.role}`,
+          },
+        });
+
+        // Remove password from response
+        const { password, ...userWithoutPassword } = user;
+        return userWithoutPassword;
+      } catch (error) {
+        if (error.code === 'P2002' && (error.meta?.target?.includes('code') || error.meta?.target?.includes('users_code_key'))) {
+          retries++;
+          // Add small delay to reduce race condition likelihood
+          await new Promise(resolve => setTimeout(resolve, 100));
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to generate a unique user code after multiple attempts.');
   }
 
   async findAll(query?: {

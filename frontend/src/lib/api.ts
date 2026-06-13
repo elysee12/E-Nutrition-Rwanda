@@ -266,6 +266,64 @@ export interface NotificationsResponse {
   totalPages: number;
 }
 
+export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ';
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  sender: {
+    id: string;
+    name: string;
+    role: UserRole;
+  };
+  content: string;
+  status: MessageStatus;
+  attachments?: string[];
+  readAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  participant1Id: string;
+  participant2Id: string;
+  participant1: {
+    id: string;
+    name: string;
+    role: UserRole;
+    email: string;
+    facility?: {
+      name: string;
+    };
+  };
+  participant2: {
+    id: string;
+    name: string;
+    role: UserRole;
+    email: string;
+    facility?: {
+      name: string;
+    };
+  };
+  otherParticipant: {
+    id: string;
+    name: string;
+    role: UserRole;
+    email: string;
+    facility?: {
+      name: string;
+    };
+  };
+  lastMessageAt: string;
+  lastMessage?: string;
+  unreadCount: number;
+  messages?: Message[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   meta: {
@@ -364,19 +422,72 @@ class ApiClient {
       throw err;
     }
 
+    // Cache successful GET responses
+    if (options.method === 'GET' || !options.method) {
+      this.cacheResponse(endpoint, data);
+    }
+
     return data as T;
   }
 
   /**
-   * GET request
+   * Cache a response in localStorage
+   */
+  private cacheResponse(endpoint: string, data: any) {
+    if (typeof window === 'undefined') return;
+    try {
+      const cacheKey = `enr-api-cache-${endpoint}`;
+      localStorage.setItem(cacheKey, JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }));
+    } catch (e) {
+      console.warn('Failed to cache API response', e);
+    }
+  }
+
+  /**
+   * Get a cached response from localStorage
+   */
+  private getCachedResponse<T>(endpoint: string): T | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cacheKey = `enr-api-cache-${endpoint}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.data as T;
+      }
+    } catch (e) {
+      console.warn('Failed to get cached API response', e);
+    }
+    return null;
+  }
+
+  /**
+   * GET request with offline fallback
    */
   async get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     const queryString = params
       ? '?' + new URLSearchParams(params).toString()
       : '';
-    return this.request<T>(`${endpoint}${queryString}`, {
-      method: 'GET',
-    });
+    const fullEndpoint = `${endpoint}${queryString}`;
+    
+    try {
+      return await this.request<T>(fullEndpoint, {
+        method: 'GET',
+      });
+    } catch (err: any) {
+      // If offline or network error, try fallback to cache
+      if (!navigator.onLine || err.name === 'TypeError' || err.statusCode >= 500) {
+        const cached = this.getCachedResponse<T>(fullEndpoint);
+        if (cached) {
+          console.log(`📡 Offline: Using cached data for ${fullEndpoint}`);
+          return cached;
+        }
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1044,6 +1155,70 @@ class ApiClient {
     }
 
     return response.blob();
+  }
+
+  // ============================================================================
+  // MESSAGING API
+  // ============================================================================
+
+  /**
+   * Send a message
+   */
+  async sendMessage(recipientId: string, content: string, attachments?: string[]): Promise<Message> {
+    return this.post<Message>('/messages', { recipientId, content, attachments });
+  }
+
+  /**
+   * Get all conversations
+   */
+  async getConversations(): Promise<Conversation[]> {
+    return this.get<Conversation[]>('/messages/conversations');
+  }
+
+  /**
+   * Get messages in a conversation
+   */
+  async getConversationMessages(conversationId: string, params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedResponse<Message>> {
+    return this.get<PaginatedResponse<Message>>(`/messages/conversations/${conversationId}`, params);
+  }
+
+  /**
+   * Mark conversation as read
+   */
+  async markConversationAsRead(conversationId: string): Promise<{ count: number }> {
+    return this.patch<{ count: number }>(`/messages/conversations/${conversationId}/read`);
+  }
+
+  /**
+   * Get unread message count
+   */
+  async getUnreadMessageCount(): Promise<{ unreadCount: number }> {
+    return this.get<{ unreadCount: number }>('/messages/unread-count');
+  }
+
+  /**
+   * Get admin users (for staff to chat with)
+   */
+  async getAdminUsers(): Promise<Partial<User>[]> {
+    return this.get<Partial<User>[]>('/messages/admin-users');
+  }
+
+  /**
+   * Get staff users (for admin to chat with)
+   */
+  async getStaffUsers(facilityId?: string): Promise<Partial<User>[]> {
+    const params = facilityId ? { facilityId } : undefined;
+    return this.get<Partial<User>[]>('/messages/staff-users', params);
+  }
+
+  /**
+   * Delete a conversation
+   */
+  async deleteConversation(conversationId: string): Promise<{ message: string }> {
+    return this.delete<{ message: string }>(`/messages/conversations/${conversationId}`);
   }
 }
 

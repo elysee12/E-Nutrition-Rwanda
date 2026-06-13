@@ -31,6 +31,7 @@ import { DataTablePagination } from "@/components/ui/data-table-pagination";
 import { useRole } from "@/lib/role";
 import { api, type Child, type NutritionStatus } from "@/lib/api";
 import { toast } from "sonner";
+import { handleError } from "@/lib/error-handler";
 
 export const Route = createFileRoute("/web/children")({
   head: () => ({ meta: [{ title: "Children Registry — E-Nutrition Rwanda" }] }),
@@ -55,8 +56,9 @@ function ChildrenPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const role = useRole();
-  const canRegister = role === "nutritionist" || role === "chw";
-  const canDelete = role === "admin" || role === "data-manager";
+  const normalizedRole = role?.toLowerCase();
+  const canRegister = normalizedRole === "nutritionist" || normalizedRole === "chw";
+  const canDelete = normalizedRole === "admin" || normalizedRole === "data-manager";
 
   useEffect(() => {
     fetchChildren();
@@ -74,8 +76,8 @@ function ChildrenPage() {
       setChildren(response.data);
       setTotalChildren(response.meta.total);
     } catch (error) {
-      console.error("Failed to fetch children:", error);
-      toast.error("Failed to load children. Please try again.");
+      const errorMessage = handleError(error, "Failed to load children");
+      toast.error(errorMessage);
       setChildren([]);
       setTotalChildren(0);
     } finally {
@@ -92,7 +94,8 @@ function ChildrenPage() {
       setDeleteChild(null);
       fetchChildren();
     } catch (error: any) {
-      toast.error("Failed to remove child", { description: error.message });
+      const errorMessage = handleError(error, "Failed to remove child");
+      toast.error(errorMessage);
     } finally {
       setDeleteLoading(false);
     }

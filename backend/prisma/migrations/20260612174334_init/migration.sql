@@ -43,6 +43,8 @@ CREATE TABLE `users` (
     `loginAttempts` INTEGER NOT NULL DEFAULT 0,
     `passwordResetToken` VARCHAR(191) NULL,
     `passwordResetExpires` DATETIME(3) NULL,
+    `otp` VARCHAR(191) NULL,
+    `otpExpires` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -60,6 +62,8 @@ CREATE TABLE `users` (
 CREATE TABLE `children` (
     `id` VARCHAR(191) NOT NULL,
     `code` VARCHAR(191) NOT NULL,
+    `applicationNumber` VARCHAR(191) NULL,
+    `syncId` VARCHAR(191) NULL,
     `name` VARCHAR(191) NOT NULL,
     `sex` ENUM('M', 'F') NOT NULL,
     `dateOfBirth` DATETIME(3) NOT NULL,
@@ -81,13 +85,17 @@ CREATE TABLE `children` (
     `lastAssessmentDate` DATETIME(3) NULL,
     `registeredById` VARCHAR(191) NOT NULL,
     `registeredAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `assignedCHWId` VARCHAR(191) NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `notes` TEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `children_code_key`(`code`),
+    UNIQUE INDEX `children_applicationNumber_key`(`applicationNumber`),
+    UNIQUE INDEX `children_syncId_key`(`syncId`),
     INDEX `children_code_idx`(`code`),
+    INDEX `children_applicationNumber_idx`(`applicationNumber`),
     INDEX `children_facilityId_idx`(`facilityId`),
     INDEX `children_currentStatus_idx`(`currentStatus`),
     INDEX `children_village_sector_idx`(`village`, `sector`),
@@ -101,13 +109,18 @@ CREATE TABLE `children` (
 CREATE TABLE `assessments` (
     `id` VARCHAR(191) NOT NULL,
     `code` VARCHAR(191) NOT NULL,
+    `syncId` VARCHAR(191) NULL,
     `type` ENUM('INITIAL_SCREENING', 'CLINICAL_REVIEW', 'FOLLOW_UP', 'EMERGENCY') NOT NULL DEFAULT 'CLINICAL_REVIEW',
+    `status` ENUM('Pending', 'Reviewed') NOT NULL DEFAULT 'Pending',
     `childId` VARCHAR(191) NOT NULL,
     `facilityId` VARCHAR(191) NOT NULL,
     `assessedById` VARCHAR(191) NOT NULL,
+    `reviewedById` VARCHAR(191) NULL,
+    `reviewedAt` DATETIME(3) NULL,
     `weightKg` DOUBLE NOT NULL,
     `heightCm` DOUBLE NOT NULL,
-    `muacMm` DOUBLE NOT NULL,
+    `muacMm` DOUBLE NULL,
+    `muacCm` DOUBLE NULL,
     `zScoreWFH` DOUBLE NULL,
     `zScoreHFA` DOUBLE NULL,
     `zScoreWFA` DOUBLE NULL,
@@ -132,6 +145,7 @@ CREATE TABLE `assessments` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `assessments_code_key`(`code`),
+    UNIQUE INDEX `assessments_syncId_key`(`syncId`),
     INDEX `assessments_childId_idx`(`childId`),
     INDEX `assessments_facilityId_idx`(`facilityId`),
     INDEX `assessments_assessedById_idx`(`assessedById`),
@@ -207,6 +221,7 @@ CREATE TABLE `growth_records` (
     `weightKg` DOUBLE NOT NULL,
     `heightCm` DOUBLE NOT NULL,
     `muacMm` DOUBLE NULL,
+    `muacCm` DOUBLE NULL,
     `zScoreWFH` DOUBLE NULL,
     `zScoreHFA` DOUBLE NULL,
     `zScoreWFA` DOUBLE NULL,
@@ -223,7 +238,7 @@ CREATE TABLE `growth_records` (
 -- CreateTable
 CREATE TABLE `activities` (
     `id` VARCHAR(191) NOT NULL,
-    `type` ENUM('CHILD_REGISTRATION', 'ASSESSMENT_CREATED', 'ASSESSMENT_UPDATED', 'FOLLOW_UP_COMPLETED', 'REFERRAL_MADE', 'USER_CREATED', 'USER_UPDATED', 'FACILITY_REGISTERED', 'DATA_SYNCED') NOT NULL,
+    `type` ENUM('CHILD_REGISTRATION', 'ASSESSMENT_CREATED', 'ASSESSMENT_UPDATED', 'ASSESSMENT_REVIEWED', 'FOLLOW_UP_COMPLETED', 'REFERRAL_MADE', 'USER_CREATED', 'USER_UPDATED', 'FACILITY_REGISTERED', 'DATA_SYNCED') NOT NULL,
     `userId` VARCHAR(191) NULL,
     `facilityId` VARCHAR(191) NULL,
     `entityType` VARCHAR(191) NULL,
@@ -283,6 +298,25 @@ CREATE TABLE `chw_stats` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- CreateTable
+CREATE TABLE `notifications` (
+    `id` VARCHAR(191) NOT NULL,
+    `userId` VARCHAR(191) NOT NULL,
+    `type` ENUM('ASSESSMENT_CREATED', 'FOLLOWUP_DUE', 'REFERRAL_RECEIVED', 'USER_CREATED', 'SYSTEM') NOT NULL,
+    `title` VARCHAR(191) NOT NULL,
+    `message` VARCHAR(191) NOT NULL,
+    `read` BOOLEAN NOT NULL DEFAULT false,
+    `relatedId` VARCHAR(191) NULL,
+    `relatedType` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `notifications_userId_idx`(`userId`),
+    INDEX `notifications_read_idx`(`read`),
+    INDEX `notifications_createdAt_idx`(`createdAt`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- AddForeignKey
 ALTER TABLE `users` ADD CONSTRAINT `users_facilityId_fkey` FOREIGN KEY (`facilityId`) REFERENCES `facilities`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -293,6 +327,9 @@ ALTER TABLE `children` ADD CONSTRAINT `children_facilityId_fkey` FOREIGN KEY (`f
 ALTER TABLE `children` ADD CONSTRAINT `children_registeredById_fkey` FOREIGN KEY (`registeredById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `children` ADD CONSTRAINT `children_assignedCHWId_fkey` FOREIGN KEY (`assignedCHWId`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `assessments` ADD CONSTRAINT `assessments_childId_fkey` FOREIGN KEY (`childId`) REFERENCES `children`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -300,6 +337,9 @@ ALTER TABLE `assessments` ADD CONSTRAINT `assessments_facilityId_fkey` FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE `assessments` ADD CONSTRAINT `assessments_assessedById_fkey` FOREIGN KEY (`assessedById`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `assessments` ADD CONSTRAINT `assessments_reviewedById_fkey` FOREIGN KEY (`reviewedById`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `follow_ups` ADD CONSTRAINT `follow_ups_childId_fkey` FOREIGN KEY (`childId`) REFERENCES `children`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -339,3 +379,6 @@ ALTER TABLE `facility_stats` ADD CONSTRAINT `facility_stats_facilityId_fkey` FOR
 
 -- AddForeignKey
 ALTER TABLE `chw_stats` ADD CONSTRAINT `chw_stats_chwId_fkey` FOREIGN KEY (`chwId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `notifications` ADD CONSTRAINT `notifications_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

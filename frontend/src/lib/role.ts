@@ -62,11 +62,10 @@ export function clearAuth() {
  * Updates only when another tab writes to localStorage.
  */
 export function useRole(): Role {
-  const [role, setRoleState] = useState<Role>("nutritionist");
+  const [role, setRoleState] = useState<Role>(getRole);
 
   useEffect(() => {
-    setRoleState(getRole());
-
+    // Already initialized with getRole(), but keep listener for other tabs
     const onStorage = (e: StorageEvent) => {
       if (e.key === ROLE_KEY && e.newValue) {
         setRoleState(e.newValue as Role);

@@ -185,6 +185,9 @@ model User {
   childrenAssigned  Child[]          @relation("AssignedCHW")
   chwStats         CHWStats[]        @relation("CHWStatsRelation")
   notifications    Notification[]
+  sentMessages     Message[]         @relation("MessageSender")
+  conversationsAsParticipant1 Conversation[] @relation("Participant1")
+  conversationsAsParticipant2 Conversation[] @relation("Participant2")
   
   // Authentication & Security
   lastLogin        DateTime?
@@ -210,6 +213,7 @@ model Child {
   id          String      @id @default(cuid())
   code        String      @unique // e.g., "ENR-00142"
   applicationNumber String? @unique // Hospital/health center application number
+  syncId      String?     @unique // Unique ID from client for idempotency
   
   // Basic Information
   name        String
@@ -280,6 +284,7 @@ model Child {
 model Assessment {
   id          String          @id @default(cuid())
   code        String          @unique // e.g., "ASM-00001"
+  syncId      String?         @unique // Unique ID from client for idempotency
   type        AssessmentType  @default(CLINICAL_REVIEW)
   status      AssessmentStatus @default(Pending)
   
@@ -602,6 +607,72 @@ model Notification {
   @@index([read])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// ============================================================================
+// MESSAGING SYSTEM
+// ============================================================================
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+/// Conversation threads between users
+model Conversation {
+  id              String    @id @default(cuid())
+  
+  // Participants (for simplicity, one-on-one conversations)
+  participant1    User      @relation("Participant1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant1Id  String
+  
+  participant2    User      @relation("Participant2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  participant2Id  String
+  
+  // Conversation metadata
+  lastMessageAt   DateTime  @default(now())
+  lastMessage     String?   @db.Text
+  
+  // Messages in this conversation
+  messages        Message[]
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([participant1Id, participant2Id])
+  @@index([participant1Id])
+  @@index([participant2Id])
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+/// Individual messages
+model Message {
+  id              String        @id @default(cuid())
+  
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId  String
+  
+  sender          User          @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId        String
+  
+  content         String        @db.Text
+  status          MessageStatus @default(SENT)
+  
+  // Attachments (optional - JSON array of file URLs)
+  attachments     Json?
+  
+  // Read receipt
+  readAt          DateTime?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("messages")
 }
 
 // ============================================================================

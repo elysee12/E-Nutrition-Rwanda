@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Link, useRouterState, useRouter, useNavigate } from "@tanstack/react-router";
-import { Activity, Bell, Home, ListChecks, LogOut, RefreshCw, UserPlus, Wifi } from "lucide-react";
+import { Activity, Bell, Home, ListChecks, LogOut, RefreshCw, UserPlus, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { clearAuth } from "@/lib/role";
@@ -21,14 +21,25 @@ export function PhoneFrame({ title, children }: { title: string; children: React
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener("resize", checkMobile);
+    };
   }, []);
 
   useEffect(() => {
@@ -89,12 +100,19 @@ export function PhoneFrame({ title, children }: { title: string; children: React
             <span>9:41</span>
             <div className="absolute left-1/2 -translate-x-1/2 top-2.5 h-6 w-32 rounded-full bg-foreground/95" />
             <div className="flex items-center gap-1.5">
-              <Wifi className="h-3.5 w-3.5" />
+              {isOnline ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5 text-red-500" />}
               <span>100%</span>
             </div>
           </div>
         )}
         
+        {/* Offline Banner */}
+        {!isOnline && (
+          <div className="bg-amber-500 text-white text-[10px] py-1 px-4 text-center font-bold flex items-center justify-center gap-2">
+            <WifiOff className="h-3 w-3" /> WORKING OFFLINE · DATA WILL SYNC LATER
+          </div>
+        )}
+
         {/* Header */}
         <div className="px-5 pt-4 pb-3 border-b border-border flex items-center justify-between bg-card/50 backdrop-blur-sm sticky top-0 z-10 shrink-0">
           <div className="flex flex-col">
@@ -138,7 +156,12 @@ export function PhoneFrame({ title, children }: { title: string; children: React
                   "flex flex-col items-center gap-1 py-2.5 rounded-xl transition-all duration-200",
                   active ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}>
-                  <Icon className={cn("h-5.5 w-5.5 transition-transform duration-200", active && "scale-115")} />
+                  <div className="relative">
+                    <Icon className={cn("h-5.5 w-5.5 transition-transform duration-200", active && "scale-115")} />
+                    {t.to === "/mobile/sync" && offlineSync.getPendingCount() > 0 && (
+                      <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-amber-500 border-2 border-card" />
+                    )}
+                  </div>
                   <span className="text-[11px] font-medium">{t.label}</span>
                 </Link>
               );

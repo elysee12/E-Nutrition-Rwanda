@@ -14,6 +14,7 @@ import { FacilityModule } from './facility/facility.module';
 import { ReferralModule } from './referral/referral.module';
 import { ActivityModule } from './activity/activity.module';
 import { NotificationModule } from './notification/notification.module';
+import { MessageModule } from './message/message.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { NotificationModule } from './notification/notification.module';
     ActivityModule,
     StatisticsModule,
     NotificationModule,
+    MessageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

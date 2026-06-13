@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { LocationPicker, type LocationValue } from "@/components/LocationPicker";
 import { useRole, ROLE_PROFILE } from "@/lib/role";
 import { api, type Child } from "@/lib/api";
+import { handleError } from "@/lib/error-handler";
 
 interface CHW {
   id: string; code: string; name: string;
@@ -238,9 +239,8 @@ export function RegisterChildDialog({
       resetForm();
       onSuccess?.();
     } catch (error: any) {
-      toast.error(isUpdateMode ? "Failed to update child" : "Failed to register child", {
-        description: error.message || "Please try again",
-      });
+      const errorMessage = handleError(error, isUpdateMode ? "Failed to update child" : "Failed to register child");
+      toast.error(errorMessage);
     } finally {
       setSubmitting(false);
     }

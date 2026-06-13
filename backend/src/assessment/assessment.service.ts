@@ -29,6 +29,27 @@ export class AssessmentService {
   }
 
   async create(createAssessmentDto: CreateAssessmentDto, userId: string) {
+    // Check for idempotency using syncId - first check
+    if (createAssessmentDto.syncId) {
+      const existing = await this.prisma.assessment.findUnique({
+        where: { syncId: createAssessmentDto.syncId },
+        include: {
+          child: true,
+          facility: true,
+          assessedBy: {
+            select: { id: true, name: true, code: true, role: true },
+          },
+          reviewedBy: {
+            select: { id: true, name: true, code: true, role: true },
+          },
+        },
+      });
+      if (existing) {
+        console.log(`📡 Idempotency: Returning existing assessment for syncId ${createAssessmentDto.syncId}`);
+        return existing;
+      }
+    }
+
     // Get child details for classification
     const child = await this.prisma.child.findUnique({
       where: { id: createAssessmentDto.childId },
@@ -66,141 +87,205 @@ export class AssessmentService {
       ageMonths: child.ageMonths,
     });
 
-    // Generate assessment code
-    const assessmentCount = await this.prisma.assessment.count();
-    const code = `ASS-${String(assessmentCount + 1).padStart(5, '0')}`;
+    // Generate assessment code with collision handling
+    let code = '';
+    let retries = 0;
+    const maxRetries = 5;
 
-    // Create assessment
-    const assessment = await this.prisma.assessment.create({
-      data: {
-        code,
-        type: isCHW ? 'INITIAL_SCREENING' : 'CLINICAL_REVIEW',
-        status: isCHW ? 'Pending' : 'Reviewed',
-        childId: createAssessmentDto.childId,
-        facilityId: createAssessmentDto.facilityId,
-        assessedById: userId,
-        reviewedById: isCHW ? null : userId,
-        reviewedAt: isCHW ? null : new Date(),
-        weightKg: createAssessmentDto.weightKg,
-        heightCm: createAssessmentDto.heightCm,
-        muacCm: muacForClassification,
-        zScoreWFH: classification.zScores.wfh,
-        zScoreHFA: classification.zScores.hfa,
-        zScoreWFA: classification.zScores.wfa,
-        nutritionStatus: classification.nutritionStatus,
-        isSAM: classification.isSAM,
-        isMAM: classification.isMAM,
-        isStunted: classification.isStunted,
-        isUnderweight: classification.isUnderweight,
-        isWasted: classification.isWasted,
-        hasOedema: createAssessmentDto.hasOedema || false,
-        diagnosis: classification.nutritionStatus,
-        recommendations: classification.recommendations.join('; '),
-        requiresFollowUp: classification.isSAM || classification.isMAM,
-        followUpDate: classification.isSAM || classification.isMAM 
-          ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-          : null,
-        assessmentDate: new Date(),
-      },
-      include: {
-        child: true,
-        facility: true,
-        assessedBy: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            role: true,
-          },
-        },
-        reviewedBy: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            role: true,
-          },
-        },
-      },
-    });
-
-    // Update child's current status
-    await this.prisma.child.update({
-      where: { id: child.id },
-      data: {
-        currentStatus: classification.nutritionStatus,
-        lastAssessmentDate: new Date(),
-      },
-    });
-
-    // Create growth record
-    await this.prisma.growthRecord.create({
-      data: {
-        childId: child.id,
-        ageMonths: child.ageMonths,
-        weightKg: createAssessmentDto.weightKg,
-        heightCm: createAssessmentDto.heightCm,
-        muacCm: muacForClassification,
-        zScoreWFH: classification.zScores.wfh,
-        zScoreHFA: classification.zScores.hfa,
-        zScoreWFA: classification.zScores.wfa,
-        status: classification.nutritionStatus,
-        measuredDate: new Date(),
-      },
-    });
-
-    // Create follow-up if needed (only for SAM/MAM; normal just has recommendation)
-    if (classification.isSAM || classification.isMAM) {
-      const followUpCount = await this.prisma.followUp.count();
-      const followUpCode = `FU-${String(followUpCount + 1).padStart(5, '0')}`;
-      await this.prisma.followUp.create({
-        data: {
-          code: followUpCode,
-          childId: child.id,
-          assessmentId: assessment.id,
-          scheduledDate: assessment.followUpDate!,
-          status: 'Scheduled',
-          reason: `Follow-up for ${classification.nutritionStatus}`,
-        },
+    while (retries < maxRetries) {
+      const lastAssessment = await this.prisma.assessment.findFirst({
+        orderBy: { code: 'desc' },
       });
+      
+      let nextNumber = 1;
+      if (lastAssessment) {
+        const match = lastAssessment.code.match(/ASS-(\d+)/);
+        if (match && match[1]) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      }
+      code = `ASS-${String(nextNumber).padStart(5, '0')}`;
+
+      try {
+        // Create assessment
+        const assessment = await this.prisma.assessment.create({
+          data: {
+            code,
+            syncId: createAssessmentDto.syncId || null,
+            type: isCHW ? 'INITIAL_SCREENING' : 'CLINICAL_REVIEW',
+            status: isCHW ? 'Pending' : 'Reviewed',
+            childId: createAssessmentDto.childId,
+            facilityId: createAssessmentDto.facilityId,
+            assessedById: userId,
+            reviewedById: isCHW ? null : userId,
+            reviewedAt: isCHW ? null : new Date(),
+            weightKg: createAssessmentDto.weightKg,
+            heightCm: createAssessmentDto.heightCm,
+            muacCm: muacForClassification,
+            zScoreWFH: classification.zScores.wfh,
+            zScoreHFA: classification.zScores.hfa,
+            zScoreWFA: classification.zScores.wfa,
+            nutritionStatus: classification.nutritionStatus,
+            isSAM: classification.isSAM,
+            isMAM: classification.isMAM,
+            isStunted: classification.isStunted,
+            isUnderweight: classification.isUnderweight,
+            isWasted: classification.isWasted,
+            hasOedema: createAssessmentDto.hasOedema || false,
+            diagnosis: classification.nutritionStatus,
+            recommendations: classification.recommendations.join('; '),
+            requiresFollowUp: classification.isSAM || classification.isMAM,
+            followUpDate: classification.isSAM || classification.isMAM 
+              ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              : null,
+            assessmentDate: new Date(),
+          },
+          include: {
+            child: true,
+            facility: true,
+            assessedBy: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                role: true,
+              },
+            },
+            reviewedBy: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                role: true,
+              },
+            },
+          },
+        });
+
+        // Update child's current status
+        await this.prisma.child.update({
+          where: { id: child.id },
+          data: {
+            currentStatus: classification.nutritionStatus,
+            lastAssessmentDate: new Date(),
+          },
+        });
+
+        // Create growth record
+        await this.prisma.growthRecord.create({
+          data: {
+            childId: child.id,
+            ageMonths: child.ageMonths,
+            weightKg: createAssessmentDto.weightKg,
+            heightCm: createAssessmentDto.heightCm,
+            muacCm: muacForClassification,
+            zScoreWFH: classification.zScores.wfh,
+            zScoreHFA: classification.zScores.hfa,
+            zScoreWFA: classification.zScores.wfa,
+            status: classification.nutritionStatus,
+            measuredDate: new Date(),
+          },
+        });
+
+        // Create follow-up if needed (only for SAM/MAM; normal just has recommendation)
+        if (classification.isSAM || classification.isMAM) {
+          const lastFollowUp = await this.prisma.followUp.findFirst({
+            orderBy: { code: 'desc' },
+          });
+          
+          let nextFU = 1;
+          if (lastFollowUp) {
+            const match = lastFollowUp.code.match(/FU-(\d+)/);
+            if (match && match[1]) {
+              nextFU = parseInt(match[1], 10) + 1;
+            }
+          }
+          const followUpCode = `FU-${String(nextFU).padStart(5, '0')}`;
+          
+          await this.prisma.followUp.create({
+            data: {
+              code: followUpCode,
+              childId: child.id,
+              assessmentId: assessment.id,
+              scheduledDate: assessment.followUpDate!,
+              status: 'Scheduled',
+              reason: `Follow-up for ${classification.nutritionStatus}`,
+            },
+          });
+        }
+
+        // Log activity
+        await this.prisma.activity.create({
+          data: {
+            type: 'ASSESSMENT_CREATED',
+            userId,
+            facilityId: createAssessmentDto.facilityId,
+            entityType: 'Assessment',
+            entityId: assessment.id,
+            description: `Assessment ${assessment.code} for ${child.name}: ${classification.nutritionStatus}`,
+          },
+        });
+
+        // Send notifications to nurses and data managers at the facility
+        const facilityStaff = await this.prisma.user.findMany({
+          where: {
+            facilityId: createAssessmentDto.facilityId,
+            status: 'Active',
+            role: { in: ['NURSE', 'DATA_MANAGER'] },
+            id: { not: userId } // don't notify the user who created it
+          },
+          select: { id: true },
+        });
+
+        // Create a notification for each staff member
+        for (const staff of facilityStaff) {
+          await this.notificationService.createNotification({
+            userId: staff.id,
+            type: 'ASSESSMENT_CREATED',
+            title: 'New Assessment Submitted',
+            message: `A new assessment has been submitted for ${child.name} (${child.code}). Please review it soon.`,
+            relatedId: assessment.id,
+            relatedType: 'assessment',
+          });
+        }
+
+        return assessment;
+      } catch (error) {
+        if (error.code === 'P2002') {
+          const target = error.meta?.target as string;
+          
+          // Check if it's a syncId conflict - if yes, return existing record
+          if (target.includes('syncId') && createAssessmentDto.syncId) {
+            const existing = await this.prisma.assessment.findUnique({
+              where: { syncId: createAssessmentDto.syncId },
+              include: {
+                child: true,
+                facility: true,
+                assessedBy: {
+                  select: { id: true, name: true, code: true, role: true },
+                },
+                reviewedBy: {
+                  select: { id: true, name: true, code: true, role: true },
+                },
+              },
+            });
+            if (existing) {
+              console.log(`📡 Idempotency (race condition): Returning existing assessment for syncId ${createAssessmentDto.syncId}`);
+              return existing;
+            }
+          }
+          
+          // If it's a code conflict, retry
+          if (target.includes('code') || target.includes('assessments_code_key')) {
+            retries++;
+            continue;
+          }
+        }
+        throw error;
+      }
     }
 
-    // Log activity
-    await this.prisma.activity.create({
-      data: {
-        type: 'ASSESSMENT_CREATED',
-        userId,
-        facilityId: createAssessmentDto.facilityId,
-        entityType: 'Assessment',
-        entityId: assessment.id,
-        description: `Assessment ${assessment.code} for ${child.name}: ${classification.nutritionStatus}`,
-      },
-    });
-
-    // Send notifications to nurses and data managers at the facility
-    const facilityStaff = await this.prisma.user.findMany({
-      where: {
-        facilityId: createAssessmentDto.facilityId,
-        status: 'Active',
-        role: { in: ['NURSE', 'DATA_MANAGER'] },
-        id: { not: userId } // don't notify the user who created it
-      },
-      select: { id: true },
-    });
-
-    // Create a notification for each staff member
-    for (const staff of facilityStaff) {
-      await this.notificationService.createNotification({
-        userId: staff.id,
-        type: 'ASSESSMENT_CREATED',
-        title: 'New Assessment Submitted',
-        message: `A new assessment has been submitted for ${child.name} (${child.code}). Please review it soon.`,
-        relatedId: assessment.id,
-        relatedType: 'assessment',
-      });
-    }
-
-    return assessment;
+    throw new Error('Failed to generate a unique assessment code after multiple attempts.');
   }
 
   async findAll(query: {

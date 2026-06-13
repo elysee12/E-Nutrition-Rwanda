@@ -4,6 +4,9 @@ const ASSETS_TO_CACHE = [
   '/index.html',
   '/manifest.webmanifest',
   '/favicon.ico',
+  '/src/main.tsx',
+  '/src/styles.css',
+  // Cache common fonts/icons if any
 ];
 
 // Install event - cache core assets
@@ -32,15 +35,28 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - network first, fallback to cache for navigation
 self.addEventListener('fetch', (event) => {
-  // Skip cross-origin requests
+  // Only handle GET requests
+  if (event.request.method !== 'GET') return;
+
+  // Skip cross-origin requests except for Google Fonts or similar if needed
   if (!event.request.url.startsWith(self.location.origin)) return;
 
+  // For navigation requests (HTML), try network first, then cache
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // For other assets, use network first, then cache
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful responses
+        // Cache successful responses for assets
         if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
