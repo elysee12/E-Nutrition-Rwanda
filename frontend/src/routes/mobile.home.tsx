@@ -148,8 +148,7 @@ function Home() {
        * Uses a flex-col that fills the phone's content area (flex-1 overflow-hidden).
        * Every section gets a proportional flex share.
        */}
-      <div className="h-full flex flex-col px-4 py-3 gap-3 overflow-hidden">
-
+      <div className="h-full flex flex-col px-4 py-3 gap-3 overflow-hidden" style={{ minHeight: 0 }}>
         {/* ── 1. Stats hero card ── */}
         <div className="shrink-0 rounded-2xl px-4 py-3 text-white bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-600 shadow-lg">
           {/* Location pill */}
