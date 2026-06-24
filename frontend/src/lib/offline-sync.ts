@@ -303,6 +303,36 @@ class OfflineSyncService {
   }
 
   /**
+   * Get a specific action by ID
+   */
+  getActionById(id: string): SyncAction | null {
+    this.loadCurrentUser();
+    this.loadActions();
+    return this.actions.find(a => a.id === id) || null;
+  }
+
+  /**
+   * Update an existing action
+   */
+  updateAction(id: string, updatedPayload: any, newDescription?: string) {
+    this.loadCurrentUser();
+    this.loadActions();
+    
+    const index = this.actions.findIndex(a => a.id === id);
+    if (index !== -1) {
+      this.actions[index].payload = { ...this.actions[index].payload, ...updatedPayload };
+      if (newDescription) {
+        this.actions[index].description = newDescription;
+      }
+      // Reset status back to queued in case it was in error
+      this.actions[index].status = 'queued';
+      delete this.actions[index].error;
+      this.saveActions();
+      window.dispatchEvent(new CustomEvent('enr-sync-updated'));
+    }
+  }
+
+  /**
    * Remove a specific action for the current user
    */
   removeAction(id: string) {

@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PhoneFrame } from "@/components/mobile/PhoneFrame";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, Loader2, AlertCircle, Trash2 } from "lucide-react";
+import { CheckCircle2, CloudOff, RefreshCw, Wifi, WifiOff, Loader2, AlertCircle, Trash2, Edit3 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { offlineSync, type SyncAction } from "@/lib/offline-sync";
@@ -9,6 +9,7 @@ import { offlineSync, type SyncAction } from "@/lib/offline-sync";
 export const Route = createFileRoute("/mobile/sync")({ component: Sync });
 
 function Sync() {
+  const navigate = useNavigate();
   const [records, setRecords] = useState<SyncAction[]>(offlineSync.getActions());
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -163,6 +164,22 @@ function Sync() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {/* Only show edit for registration records that are not synced yet */}
+                {record.type === 'registration' && record.status !== 'synced' && record.status !== 'syncing' && (
+                  <button
+                    onClick={() => {
+                      // Navigate to registration form with syncActionId in search params
+                      navigate({ 
+                        to: '/mobile/register', 
+                        search: { syncActionId: record.id }
+                      });
+                    }}
+                    className="p-1.5 rounded-full hover:bg-muted transition-colors text-primary"
+                    title="Edit record"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {record.status === "error" && (
                   <>
                     <button
@@ -181,6 +198,15 @@ function Sync() {
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </>
+                )}
+                {record.status !== 'error' && record.status !== 'synced' && (
+                  <button
+                    onClick={() => handleDelete(record)}
+                    className="p-1.5 rounded-full hover:bg-muted transition-colors text-destructive"
+                    title="Delete record"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 )}
                 <span className={`text-[11px] font-bold capitalize ${
                   record.status === "synced" 

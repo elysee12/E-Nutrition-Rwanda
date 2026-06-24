@@ -180,39 +180,6 @@ CREATE TABLE `follow_ups` (
     INDEX `follow_ups_conductedById_idx`(`conductedById`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `referrals` (
-    `id` VARCHAR(191) NOT NULL,
-    `code` VARCHAR(191) NOT NULL,
-    `childId` VARCHAR(191) NOT NULL,
-    `assessmentId` VARCHAR(191) NOT NULL,
-    `fromFacilityId` VARCHAR(191) NOT NULL,
-    `toFacilityId` VARCHAR(191) NOT NULL,
-    `reason` VARCHAR(191) NOT NULL,
-    `urgency` VARCHAR(191) NOT NULL DEFAULT 'Routine',
-    `status` ENUM('Pending', 'Accepted', 'Completed', 'Missed') NOT NULL DEFAULT 'Pending',
-    `madeById` VARCHAR(191) NOT NULL,
-    `referralDate` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `acceptedDate` DATETIME(3) NULL,
-    `completedDate` DATETIME(3) NULL,
-    `clinicalNotes` TEXT NULL,
-    `transportArranged` BOOLEAN NOT NULL DEFAULT false,
-    `outcome` TEXT NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `referrals_code_key`(`code`),
-    UNIQUE INDEX `referrals_assessmentId_key`(`assessmentId`),
-    INDEX `referrals_childId_idx`(`childId`),
-    INDEX `referrals_assessmentId_idx`(`assessmentId`),
-    INDEX `referrals_fromFacilityId_idx`(`fromFacilityId`),
-    INDEX `referrals_toFacilityId_idx`(`toFacilityId`),
-    INDEX `referrals_status_idx`(`status`),
-    INDEX `referrals_referralDate_idx`(`referralDate`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
 -- CreateTable
 CREATE TABLE `growth_records` (
     `id` VARCHAR(191) NOT NULL,

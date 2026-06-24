@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { PhoneFrame } from "@/components/mobile/PhoneFrame";
 import { Input } from "@/components/ui/input";
@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LocationPicker, type LocationValue } from "@/components/LocationPicker";
-import { statusColor } from "@/lib/utils";
+import { statusColor, cn } from "@/lib/utils";
 import { Save, Loader2, Plus, ArrowLeft, Search, Baby, ChevronRight, RefreshCw, User, CloudOff } from "lucide-react";
 import { toast } from "sonner";
 import { api, type Child, type Assessment } from "@/lib/api";
 import { offlineSync } from "@/lib/offline-sync";
+import { validatePhone, validateNationalId, validateParentName, validateCaregiverName } from "@/lib/validation";
 
 export const Route = createFileRoute("/mobile/register")({ component: Register });
 
@@ -23,7 +24,11 @@ const EMPTY_FORM = {
 };
 
 function Register() {
-  const [view, setView] = useState<View>("list");
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/mobile/register' });
+  const syncActionId = (search as any)?.syncActionId as string | undefined;
+  
+  const [view, setView] = useState<View>(syncActionId ? "form" : "list"); // If editing a sync action, open form directly
   const [children, setChildren] = useState<Child[]>([]);
   const [total, setTotal] = useState(0);
   const [listLoading, setListLoading] = useState(true);
@@ -43,6 +48,8 @@ function Register() {
   const [appNumLooking, setAppNumLooking] = useState(false);
   const appNumTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [nameResults, setNameResults] = useState<Child[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isEditingSyncAction, setIsEditingSyncAction] = useState<boolean>(!!syncActionId);
 
   const loadChildren = async () => {
     try {
@@ -56,6 +63,40 @@ function Register() {
   };
 
   useEffect(() => { loadChildren(); }, []);
+
+  // Load sync action for editing
+  useEffect(() => {
+    if (syncActionId) {
+      const action = offlineSync.getActionById(syncActionId);
+      if (action && action.type === 'registration') {
+        // Populate form from the sync action payload
+        setForm({
+          applicationNumber: action.payload.applicationNumber || "",
+          childName: action.payload.name,
+          sex: action.payload.sex,
+          dob: action.payload.dateOfBirth || "",
+          fatherName: action.payload.fatherName || "",
+          motherName: action.payload.motherName || "",
+          caregiverName: action.payload.caregiverName || "",
+          phone: action.payload.caregiverPhone || "",
+          caregiverNationalId: action.payload.caregiverNationalId || "",
+          others: action.payload.otherInfo || "",
+        });
+        setLoc({
+          province: action.payload.province,
+          district: action.payload.district,
+          sector: action.payload.sector,
+          cell: action.payload.cell,
+          village: action.payload.village
+        });
+        setView("form");
+        setIsEditingSyncAction(true);
+      } else {
+        toast.error("Could not find the record to edit");
+        navigate({ to: '/mobile/sync' });
+      }
+    }
+  }, [syncActionId, navigate]);
 
   // Live search in form by name
   useEffect(() => {
@@ -121,6 +162,8 @@ function Register() {
   const resetForm = () => {
     setForm({ ...EMPTY_FORM }); setLoc({});
     setNameResults([]); setExistingChild(null);
+    setErrors({});
+    setIsEditingSyncAction(false);
   };
 
   const openDetail = async (child: Child) => {
@@ -135,7 +178,38 @@ function Register() {
   };
 
   const submit = async () => {
+    setErrors({});
     if (!form.childName || !form.sex || !form.dob) { toast.error("Please complete required fields"); return; }
+    
+    const newErrors: Record<string, string> = {};
+
+    // Caregiver Phone Validation
+    if (form.phone && !validatePhone(form.phone)) {
+      newErrors.phone = "Phone must be 10 digits starting with 07";
+    }
+
+    // Caregiver National ID Validation
+    if (form.caregiverNationalId && !validateNationalId(form.caregiverNationalId)) {
+      newErrors.caregiverNationalId = "National ID must be exactly 16 digits";
+    }
+
+    // Parent/Caregiver Name Validations
+    if (form.fatherName && !validateParentName(form.fatherName)) {
+      newErrors.fatherName = "Must be 2-100 characters";
+    }
+    if (form.motherName && !validateParentName(form.motherName)) {
+      newErrors.motherName = "Must be 2-100 characters";
+    }
+    if (form.caregiverName && !validateCaregiverName(form.caregiverName)) {
+      newErrors.caregiverName = "Must be 2-100 characters";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      toast.error("Validation failed", { description: "Please check the highlighted fields." });
+      return;
+    }
+
     const age = calcAge(form.dob);
     if (age < 6) { toast.error("Registration blocked: Child must be at least 6 months old"); return; }
     if (age >= 60) { toast.error("Child must be under 60 months"); return; }
@@ -153,7 +227,24 @@ function Register() {
         province: loc.province!, district: loc.district!, sector: loc.sector!, cell: loc.cell!, village: loc.village!,
       };
 
-      // Handle offline case
+      // If we're editing an existing sync action
+      if (isEditingSyncAction && syncActionId) {
+        // Update the sync action
+        offlineSync.updateAction(
+          syncActionId, 
+          payload,
+          `Updated registration: ${form.childName}` // New description
+        );
+        toast.success("Record updated successfully", { 
+          description: "Changes saved and will sync when online.",
+        });
+        resetForm(); 
+        setIsEditingSyncAction(false);
+        navigate({ to: '/mobile/sync' });
+        return;
+      }
+
+      // Handle offline case (new record)
       if (!navigator.onLine) {
         offlineSync.addAction(
           'registration',
@@ -314,13 +405,22 @@ function Register() {
 
   // ── FORM VIEW ──────────────────────────────────────────────────────────────
   return (
-    <PhoneFrame title={isUpdate ? "Update child" : "Register child"}>
+    <PhoneFrame title={isEditingSyncAction ? "Edit pending record" : isUpdate ? "Update child" : "Register child"}>
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <button onClick={() => { resetForm(); setView("list"); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to children list
+          <button onClick={() => { 
+            if (isEditingSyncAction) {
+              resetForm(); 
+              navigate({ to: '/mobile/sync' });
+            } else {
+              resetForm(); 
+              setView("list"); 
+            }
+          }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium">
+            <ArrowLeft className="h-3.5 w-3.5" /> {isEditingSyncAction ? "Back to sync queue" : "Back to children list"}
           </button>
           {isUpdate && <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 text-[10px] font-semibold">Update mode</Badge>}
+          {isEditingSyncAction && <Badge variant="outline" className="text-blue-700 border-blue-300 bg-blue-50 text-[10px] font-semibold">Editing pending record</Badge>}
         </div>
 
         <div className="space-y-3">
@@ -387,16 +487,86 @@ function Register() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Father name"><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} placeholder="Father's name" className="h-9 rounded-lg text-xs" /></Field>
-            <Field label="Mother name"><Input value={form.motherName} onChange={(e) => setForm({ ...form, motherName: e.target.value })} placeholder="Mother's name" className="h-9 rounded-lg text-xs" /></Field>
+            <Field label="Father name" error={errors.fatherName}>
+              <Input 
+                value={form.fatherName} 
+                onChange={(e) => {
+                  setForm({ ...form, fatherName: e.target.value });
+                  if (errors.fatherName) setErrors(prev => {
+                    const n = { ...prev };
+                    delete n.fatherName;
+                    return n;
+                  });
+                }} 
+                placeholder="Father's name" 
+                className={cn("h-9 rounded-lg text-xs", errors.fatherName && "border-destructive focus-visible:ring-destructive")} 
+              />
+            </Field>
+            <Field label="Mother name" error={errors.motherName}>
+              <Input 
+                value={form.motherName} 
+                onChange={(e) => {
+                  setForm({ ...form, motherName: e.target.value });
+                  if (errors.motherName) setErrors(prev => {
+                    const n = { ...prev };
+                    delete n.motherName;
+                    return n;
+                  });
+                }} 
+                placeholder="Mother's name" 
+                className={cn("h-9 rounded-lg text-xs", errors.motherName && "border-destructive focus-visible:ring-destructive")} 
+              />
+            </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Caregiver name"><Input value={form.caregiverName} onChange={(e) => setForm({ ...form, caregiverName: e.target.value })} placeholder="Caregiver" className="h-9 rounded-lg text-xs" /></Field>
-            <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+250 7…" className="h-9 rounded-lg text-xs" /></Field>
+            <Field label="Caregiver name" error={errors.caregiverName}>
+              <Input 
+                value={form.caregiverName} 
+                onChange={(e) => {
+                  setForm({ ...form, caregiverName: e.target.value });
+                  if (errors.caregiverName) setErrors(prev => {
+                    const n = { ...prev };
+                    delete n.caregiverName;
+                    return n;
+                  });
+                }} 
+                placeholder="Caregiver" 
+                className={cn("h-9 rounded-lg text-xs", errors.caregiverName && "border-destructive focus-visible:ring-destructive")} 
+              />
+            </Field>
+            <Field label="Phone" error={errors.phone}>
+              <Input 
+                value={form.phone} 
+                onChange={(e) => {
+                  setForm({ ...form, phone: e.target.value });
+                  if (errors.phone) setErrors(prev => {
+                    const n = { ...prev };
+                    delete n.phone;
+                    return n;
+                  });
+                }} 
+                placeholder="0788000000" 
+                className={cn("h-9 rounded-lg text-xs", errors.phone && "border-destructive focus-visible:ring-destructive")} 
+              />
+            </Field>
           </div>
 
-          <Field label="Caregiver national ID"><Input value={form.caregiverNationalId} onChange={(e) => setForm({ ...form, caregiverNationalId: e.target.value })} placeholder="1 1990 8 …" className="h-9 rounded-lg text-xs" /></Field>
+          <Field label="Caregiver national ID" error={errors.caregiverNationalId}>
+            <Input 
+              value={form.caregiverNationalId} 
+              onChange={(e) => {
+                setForm({ ...form, caregiverNationalId: e.target.value });
+                if (errors.caregiverNationalId) setErrors(prev => {
+                  const n = { ...prev };
+                  delete n.caregiverNationalId;
+                  return n;
+                });
+              }} 
+              placeholder="1199080000000000" 
+              className={cn("h-9 rounded-lg text-xs", errors.caregiverNationalId && "border-destructive focus-visible:ring-destructive")} 
+            />
+          </Field>
           <Field label="Others (optional)"><Input value={form.others} onChange={(e) => setForm({ ...form, others: e.target.value })} placeholder="Additional notes" className="h-9 rounded-lg text-xs" /></Field>
         </div>
 
@@ -416,11 +586,12 @@ function Register() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-[10px] font-semibold text-muted-foreground">{label}</Label>
+      <Label className={cn("text-[10px] font-semibold", error ? "text-destructive" : "text-muted-foreground")}>{label}</Label>
       {children}
+      {error && <p className="text-[9px] text-destructive font-medium leading-none">{error}</p>}
     </div>
   );
 }
